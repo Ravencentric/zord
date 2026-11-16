@@ -183,6 +183,17 @@ class Cmd:
     def args(self, *args: StrOrPath | Template) -> Cmd:
         return command(self, args=self.inner.args.concat(args))
 
+    @overload
+    def args_if(self, condition: bool, args: Template, /) -> Cmd: ...
+
+    @overload
+    def args_if(self, condition: bool, /, *args: StrOrPath) -> Cmd: ...
+
+    def args_if(self, condition: bool, /, *args: StrOrPath | Template) -> Cmd:
+        if not condition:
+            return self
+        return command(self, args=self.inner.args.concat(args))
+
     def __add__(
         self, args: Template | StrOrPath | Iterable[StrOrPath], /
     ) -> Cmd | NotImplementedType:

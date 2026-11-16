@@ -6,14 +6,9 @@ uv = Cmd("uv").args("run")
 @task(default=True)
 def check(*, fix: bool = True) -> None:
 
-    linter = uv.args(t"ruff check")
-    formatter = uv.args(t"ruff format")
+    linter = uv.args(t"ruff check").args_if(fix, "--fix")
+    formatter = uv.args(t"ruff format").args_if(not fix, "--check")
     typechecker = uv.args(t"pyrefly check")
-
-    if fix:
-        linter += "--fix"
-    else:
-        formatter += "--check"
 
     linter.run()
     formatter.run()

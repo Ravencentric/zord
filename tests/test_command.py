@@ -510,6 +510,30 @@ def test_command_addition_rejects_invalid_arguments() -> None:
         command + [t"one", "two"]  # pyrefly: ignore[unsupported-operation]
 
 
+def test_args_if_adds_literals_only_when_enabled() -> None:
+    base = Cmd(sys.executable).args("-c", "pass")
+    flags = ["two words", Path("some file.py")]
+    assert base.args_if(True, *flags).run().args == (
+        "-c",
+        "pass",
+        "two words",
+        "some file.py",
+    )
+    assert base.args_if(False, *flags).run().args == ("-c", "pass")
+
+
+def test_args_if_accepts_templates() -> None:
+    command = (
+        Cmd(sys.executable).args("-c", "pass").args_if(True, t"one {Path('two words')}")
+    )
+    assert command.run().args == ("-c", "pass", "one", "two words")
+
+
+def test_args_if_skips_parsing_when_disabled() -> None:
+    command = Cmd(sys.executable).args("-c", "pass").args_if(False, t"'")
+    assert command.run().args == ("-c", "pass")
+
+
 def test_run_delivers_arguments_and_inherits_streams(
     capfd: pytest.CaptureFixture[str],
 ) -> None:
