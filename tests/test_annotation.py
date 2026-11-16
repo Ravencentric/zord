@@ -70,6 +70,7 @@ def test_parse_int_literal() -> None:
         Literal[True],
         Literal[Path("a")],  # pyrefly: ignore[invalid-literal]
     ],
+    ids=["mixed-types", "boolean", "path"],
 )
 def test_parse_unsupported_literal(annotation: object) -> None:
     assert parse(annotation) is None

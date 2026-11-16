@@ -43,8 +43,8 @@ def missing_separator_hint(cmd: Command, tasks: Sequence[TaskId], /) -> str | No
                     f"if the values after {first!r} are arguments, use '--': "
                     f"[cyan]zord {first} -- <arg> ...[/]"
                 )
-
-    return None
+        case _:
+            return None
 
 
 def main(argv: Sequence[str] | None = None) -> int:

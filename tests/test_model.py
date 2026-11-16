@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import AsyncIterator, Iterator
+
 import pytest
 
 from zord import task
@@ -12,12 +14,12 @@ async def async_task() -> None: ...
 
 
 @task
-def generator_task():
+def generator_task() -> Iterator[None]:
     yield
 
 
 @task
-async def async_generator_task():
+async def async_generator_task() -> AsyncIterator[None]:
     yield
 
 

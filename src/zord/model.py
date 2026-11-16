@@ -23,7 +23,7 @@ class NamedCallable[**P, R](Protocol):
     def __call__(self, *args: P.args, **kwargs: P.kwargs) -> R: ...
 
 
-class TaskFn[**P, R](NamedCallable[P, R]):
+class TaskFn[**P, R](NamedCallable[P, R], Protocol):
     @property
     @override
     def __name__(self) -> str: ...

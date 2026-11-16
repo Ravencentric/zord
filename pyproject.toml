@@ -45,8 +45,21 @@ requires = ["hatchling>=1.33,<2.0"]
 build-backend = "hatchling.build"
 
 [tool.pyrefly]
-preset = "strict"
+preset = "all"
+python-platform = "all"
 project-includes = ["tasks.py", "src/**/*.py", "tests/**/*.py"]
+
+[tool.pyrefly.errors]
+explicit-any = false
+implicit-bool = false
+implicit-reexport = false
+unused-call-result = false
+
+[tool.pytest]
+addopts = ["-ra", "--showlocals"]
+filterwarnings = ["error"]
+log_cli_level = "INFO"
+strict = true
 
 [tool.ruff.lint]
 ignore = ["FURB189"]

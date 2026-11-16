@@ -94,7 +94,8 @@ class Arguments:
 
                 case Interpolation(value, _, conversion, format_spec):
                     if isinstance(value, os.PathLike):
-                        value = os.fspath(value)
+                        # Interpolated values may implement either PathLike[str] or PathLike[bytes].
+                        value = os.fspath(value)  # pyrefly: ignore[unknown-variable-type]
                     value = convert(value, conversion)
                     value = format(value, format_spec)
                     parts.append(shlex.quote(value))
@@ -161,7 +162,10 @@ class State:
 @final
 @dataclass(frozen=True, slots=True, init=False)
 class Cmd:
-    inner: State
+    # Initialized through object.__setattr__ because the command is frozen.
+    # TODO: Remove the ignore after upgrading to a release with the upstream fix.
+    # https://github.com/pyrefly-org/pyrefly/issues/5326
+    inner: State  # pyrefly: ignore[uninitialized-instance-variable]
 
     def __init__(self, executable: StrOrPath, /) -> None:
         object.__setattr__(self, "inner", State(Executable.parse(executable)))
