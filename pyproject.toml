@@ -34,7 +34,7 @@ preset = "strict"
 project-includes = ["tasks.py", "src/**/*.py", "tests/typing/**/*.py"]
 
 [tool.ruff.lint]
-extend-ignore = ["FURB189"]
+ignore = ["FURB189"]
 
 [tool.uv]
 exclude-newer = "1 week"
