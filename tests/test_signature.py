@@ -25,7 +25,7 @@ def exit_annotation() -> object:
 
 
 def test_signature_inspection_catches_system_exit() -> None:
-    def f(value: exit_annotation() = None) -> None: ...
+    def f(value: exit_annotation() = None) -> None: ...  # pyrefly: ignore[invalid-annotation]
 
     with pytest.raises(SignatureInspectionError) as excinfo:
         signature(f, id=TaskId("f"))

@@ -8,6 +8,7 @@ import pytest
 
 from zord.annotation import (
     IntLiteralType,
+    Scalar,
     ScalarType,
     StringLiteralType,
     Untyped,
@@ -39,7 +40,7 @@ def test_parse_empty(annotation: object) -> None:
 )
 def test_parse_scalar(
     annotation: type[object],
-    expected: type[object],
+    expected: type[Scalar],
 ) -> None:
     assert parse(annotation) == ScalarType(expected)
 
@@ -67,7 +68,7 @@ def test_parse_int_literal() -> None:
     [
         Literal[1, "foo"],
         Literal[True],
-        Literal[Path("a")],
+        Literal[Path("a")],  # pyrefly: ignore[invalid-literal]
     ],
 )
 def test_parse_unsupported_literal(annotation: object) -> None:

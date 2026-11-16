@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import inspect
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, final
 
@@ -19,7 +19,7 @@ from .errors import (
 )
 
 if TYPE_CHECKING:
-    from .model import TaskFn, TaskId
+    from .model import TaskId
 
 
 @final
@@ -135,7 +135,7 @@ def fixed(id: TaskId, params: Sequence[inspect.Parameter]) -> FixedSignature:
 
 
 def signature(
-    func: TaskFn[..., object], /, *, id: TaskId
+    func: Callable[..., object], /, *, id: TaskId
 ) -> FixedSignature | VariadicSignature:
     try:
         inspected = inspect.signature(func, eval_str=True)

@@ -6,13 +6,14 @@ from typing import Literal
 
 import pytest
 
+from zord import task
 from zord.cli.parser import Invoke, RunSelected, TaskParser, ZordFlag, command
-from zord.model import Task, TaskFn, TaskSpec
+from zord.model import NamedCallable, Task, TaskSpec
 
 
 class TaskParserTester:
-    def __init__(self, func: TaskFn[..., object], /) -> None:
-        self.task = Task.new(func, TaskSpec())
+    def __init__(self, func: NamedCallable[..., object], /) -> None:
+        self.task = Task.new(task(func), TaskSpec())
         self.parser = TaskParser(self.task)
 
     def parse(self, *argv: str) -> None:
@@ -40,7 +41,7 @@ def test_command_help(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    monkeypatch.setattr(os, "get_terminal_size", lambda _: os.terminal_size((80, 24)))
+    monkeypatch.setattr(os, "get_terminal_size", lambda _: os.terminal_size((80, 24)))  # pyrefly: ignore[implicit-any-lambda]
 
     with pytest.raises(SystemExit) as excinfo:
         command(("--help",))
@@ -95,7 +96,7 @@ def test_fixed_task_help(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    monkeypatch.setattr(os, "get_terminal_size", lambda _: os.terminal_size((80, 24)))
+    monkeypatch.setattr(os, "get_terminal_size", lambda _: os.terminal_size((80, 24)))  # pyrefly: ignore[implicit-any-lambda]
 
     def deploy(
         source_dir: Path = Path("src"),
@@ -160,7 +161,7 @@ def test_variadic_task_help(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    monkeypatch.setattr(os, "get_terminal_size", lambda _: os.terminal_size((80, 24)))
+    monkeypatch.setattr(os, "get_terminal_size", lambda _: os.terminal_size((80, 24)))  # pyrefly: ignore[implicit-any-lambda]
 
     def copy_files(
         *source_paths: Path,
@@ -250,14 +251,15 @@ def test_variadic_keyword_defaults() -> None:
 
 
 def test_variadic_untyped() -> None:
-    def files(*paths) -> None:
+    # Leave the parameter unannotated to exercise the string fallback.
+    def files(*paths) -> None:  # pyrefly: ignore[implicit-any-parameter]
         assert paths == ("a", "b")
 
     TaskParserTester(files).parse("a", "b")
 
 
 def test_variadic_empty() -> None:
-    def files(*paths) -> None:
+    def files(*paths) -> None:  # pyrefly: ignore[implicit-any-parameter]
         assert paths == ()
 
     TaskParserTester(files).parse()

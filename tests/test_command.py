@@ -60,7 +60,7 @@ def test_unsupported_executable_inputs_raise_value_error(
     constructor: Callable[[str | os.PathLike[str]], Cmd | Executable],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr("zord.command.shutil.which", lambda program: sys.executable)
+    monkeypatch.setattr("zord.command.shutil.which", lambda program: sys.executable)  # pyrefly: ignore[implicit-any-lambda]
     with pytest.raises(ValueError):
         constructor(executable)
 
@@ -72,7 +72,7 @@ def test_missing_bare_executable_names_raise_file_not_found(
     constructor: Callable[[str | os.PathLike[str]], Cmd | Executable],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr("zord.command.shutil.which", lambda program: None)
+    monkeypatch.setattr("zord.command.shutil.which", lambda program: None)  # pyrefly: ignore[implicit-any-lambda]
     with pytest.raises(FileNotFoundError):
         constructor(executable)
 
@@ -97,10 +97,11 @@ def test_executable_parsing_returns_absolute_paths(
     raw: str | os.PathLike[str],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr("zord.command.shutil.which", lambda program: sys.executable)
+    monkeypatch.setattr("zord.command.shutil.which", lambda program: sys.executable)  # pyrefly: ignore[implicit-any-lambda]
     executable = Executable.parse(raw)
     assert not isinstance(executable, str)
-    assert isinstance(executable, os.PathLike)
+    # PathLike's slots annotation conflicts with the slotted implementation.
+    assert isinstance(executable, os.PathLike)  # pyrefly: ignore[unsafe-overlap]
     assert str(executable) == os.path.abspath(sys.executable)
     assert os.fspath(executable) == os.path.abspath(sys.executable)
     assert Executable.parse(executable) == executable
@@ -125,7 +126,7 @@ def test_executable_parsing_preserves_symlinks(
             pytest.skip("Creating symlinks requires Windows symlink privileges")
         raise
 
-    monkeypatch.setattr("zord.command.shutil.which", lambda program: str(link))
+    monkeypatch.setattr("zord.command.shutil.which", lambda program: str(link))  # pyrefly: ignore[implicit-any-lambda]
     parsed = constructor("tool" if bare_name else link)
     executable = parsed.inner.executable if isinstance(parsed, Cmd) else parsed
     assert str(executable) == str(link)
@@ -157,9 +158,9 @@ def test_executable_equality_and_hash_use_canonical_path() -> None:
 
 def test_command_constructor_accepts_only_positional_executable() -> None:
     with pytest.raises(TypeError):
-        Cmd(executable=sys.executable)
+        Cmd(executable=sys.executable)  # pyrefly: ignore[unexpected-keyword]
     with pytest.raises(TypeError):
-        Cmd(sys.executable, inner=Cmd(sys.executable).inner)
+        Cmd(sys.executable, inner=Cmd(sys.executable).inner)  # pyrefly: ignore[unexpected-keyword]
 
 
 def test_equivalent_commands_have_equal_hashes(tmp_path: Path) -> None:
@@ -441,12 +442,12 @@ def test_arguments_are_literal_and_templates_cannot_be_mixed() -> None:
         "some file",
     )
     with pytest.raises(TypeError):
-        Cmd(sys.executable).args(t"one", "two")
+        Cmd(sys.executable).args(t"one", "two")  # pyrefly: ignore[bad-argument-type]
 
 
 def test_invalid_literal_arguments_are_rejected_when_added() -> None:
     with pytest.raises(TypeError):
-        Cmd(Path(sys.executable)).args(3)
+        Cmd(Path(sys.executable)).args(3)  # pyrefly: ignore[no-matching-overload]
 
 
 def test_empty_argument_additions_are_noops() -> None:

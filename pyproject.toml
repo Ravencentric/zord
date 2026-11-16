@@ -1,20 +1,35 @@
 [project]
 name = "zord"
-version = "0.1.0"
+version = "0.0.2"
 description = "A minimal, correct, user-friendly task runner"
 readme = "README.md"
 requires-python = ">=3.14"
 license = "MPL-2.0"
 license-files = ["LICENSE"]
 authors = [
-  { name = "Ravencentric", email = "78981416+Ravencentric@users.noreply.github.com" }
+  { name = "Ravencentric", email = "me@ravencentri.cc" }
 ]
+keywords = ["task-runner", "automation", "development"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.14",
+  "Programming Language :: Python :: 3.15",
+  "Programming Language :: Python :: Implementation :: CPython",
+  "Topic :: Software Development :: Build Tools",
+  "Typing :: Typed",
+]
+
 dependencies = []
 
 [project.scripts]
 zord = "zord.cli:main"
 
 [project.urls]
+Documentation = "https://github.com/Ravencentric/zord#readme"
 Repository = "https://github.com/Ravencentric/zord"
 Issues = "https://github.com/Ravencentric/zord/issues"
 
@@ -26,12 +41,12 @@ dev = [
 ]
 
 [build-system]
-requires = ["uv_build>=0.12,<0.13"]
-build-backend = "uv_build"
+requires = ["hatchling>=1.33,<2.0"]
+build-backend = "hatchling.build"
 
 [tool.pyrefly]
 preset = "strict"
-project-includes = ["tasks.py", "src/**/*.py", "tests/typing/**/*.py"]
+project-includes = ["tasks.py", "src/**/*.py", "tests/**/*.py"]
 
 [tool.ruff.lint]
 ignore = ["FURB189"]
