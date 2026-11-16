@@ -1,15 +1,19 @@
-from zord import Cmd, task
+from zord import Cmd, env, task
 
 uv = Cmd("uv").args("run")
 
 
 @task(default=True)
 def check(*, fix: bool = True) -> None:
+    """Run static analyzers"""
 
-    linter = uv.args(t"ruff check").args_if(fix, "--fix")
-    formatter = uv.args(t"ruff format").args_if(not fix, "--check")
-    typechecker = uv.args(t"pyrefly check")
+    uv.args(t"ruff check").args_if(fix, "--fix").run()
+    uv.args(t"ruff format").args_if(not fix, "--check").run()
+    uv.args(t"pyrefly check").run()
 
-    linter.run()
-    formatter.run()
-    typechecker.run()
+
+@task(default=True)
+def test(*, fix: bool = True) -> None:
+    """Run pytest"""
+
+    uv.args(t"pytest").args_if(env.flag("CI"), "-vv").run()

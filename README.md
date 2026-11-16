@@ -274,6 +274,16 @@ base.run()  # DEBUG=0
 debug.run()  # DEBUG=1, with -s
 ```
 
+### Environment variables
+
+Use `env` to read environment variables in your tasks:
+
+```python
+from zord import Cmd, env
+
+Cmd("pytest").args_if(env.flag("CI"), "-vv").run()
+```
+
 ### Output and exit status
 
 `.run()` returns a `Run` with `.executable`, `.args` (excluding the executable),
