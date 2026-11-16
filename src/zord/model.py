@@ -1,0 +1,111 @@
+from __future__ import annotations
+
+import inspect
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import (
+    Final,
+    Protocol,
+    final,
+    override,
+)
+
+from .errors import InvalidTaskIdError, TaskError, UnsupportedTaskFunctionError
+from .signature import FixedSignature, VariadicSignature, signature
+
+MARKER: Final = "__zord_taskspec__"
+
+
+class NamedCallable[**P, R](Protocol):
+    @property
+    def __name__(self) -> str: ...
+
+    def __call__(self, *args: P.args, **kwargs: P.kwargs) -> R: ...
+
+
+class TaskFn[**P, R](NamedCallable[P, R]):
+    @property
+    @override
+    def __name__(self) -> str: ...
+    @property
+    def __zord_taskspec__(self) -> TaskSpec: ...
+
+    def __call__(self, *args: P.args, **kwargs: P.kwargs) -> R: ...
+
+
+type TaskDecorator[**P, R] = Callable[[NamedCallable[P, R]], TaskFn[P, R]]
+
+
+@final
+class TaskId(str):
+    @classmethod
+    def new(cls, raw: str) -> TaskId | None:
+        name = raw.replace("_", "-")
+
+        if not name:
+            return None
+
+        if not name.isprintable():
+            return None
+
+        if not name[0].isalpha():
+            return None
+
+        if not name[-1].isalnum():
+            return None
+
+        if any(char.isspace() for char in name):
+            return None
+
+        return cls(name)
+
+
+@final
+@dataclass(frozen=True, slots=True)
+class TaskSpec:
+    name: str | None = None
+    description: str | None = None
+    default: bool = False
+
+
+@final
+@dataclass(frozen=True, slots=True, kw_only=True)
+class Task:
+    func: TaskFn[..., object]
+    id: TaskId
+    description: str | None = None
+    default: bool = False
+    signature: FixedSignature | VariadicSignature
+
+    @classmethod
+    def new(cls, func: TaskFn[..., object], spec: TaskSpec) -> Task:
+        fname = func.__name__
+        resolved = spec.name or fname
+        id = TaskId.new(resolved)
+        if id is None:
+            raise InvalidTaskIdError(resolved)
+
+        if inspect.isasyncgenfunction(func):
+            raise UnsupportedTaskFunctionError(id, "async generator")
+        if inspect.iscoroutinefunction(func):
+            raise UnsupportedTaskFunctionError(id, "async")
+        if inspect.isgeneratorfunction(func):
+            raise UnsupportedTaskFunctionError(id, "generator")
+
+        description = spec.description if spec.description is not None else func.__doc__
+        if description is not None:
+            description = inspect.cleandoc(description)
+
+        return cls(
+            func=func,
+            id=id,
+            description=description,
+            default=spec.default,
+            signature=signature(func, id=id),
+        )
+
+    def call(self, *args: object, **kwargs: object) -> None:
+        try:
+            self.func(*args, **kwargs)
+        except (Exception, SystemExit) as source:
+            raise TaskError(self.id) from source

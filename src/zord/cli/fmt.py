@@ -1,0 +1,214 @@
+from __future__ import annotations
+
+import os
+import subprocess
+import sys
+import traceback
+from collections.abc import Sequence
+
+from .. import annotation
+from ..errors import (
+    BooleanOptionConflictError,
+    DuplicateTaskIdError,
+    InvalidTaskIdError,
+    MissingDefaultError,
+    MixedVariadicSignatureError,
+    PositionalBoolError,
+    ReservedOptionError,
+    SignatureInspectionError,
+    TaskDefinitionError,
+    UnsupportedAnnotationError,
+    UnsupportedTaskFunctionError,
+    VarKeywordError,
+    ZordError,
+)
+from ..model import Task
+from . import console
+
+
+def relpath(filename: str, /) -> str:
+    try:
+        return os.path.relpath(filename, start=os.getcwd())
+    except ValueError:
+        # relpath cannot cross drive or UNC mount boundaries on Windows.
+        return os.path.abspath(filename)
+
+
+def location_of(exc: BaseException) -> str | None:
+    if isinstance(exc, SyntaxError) and exc.filename and exc.lineno:
+        filename = relpath(exc.filename)
+        col = f":{exc.offset}" if exc.offset is not None else ""
+        return f"at [cyan]{filename}:{exc.lineno}{col}[/]"
+
+    if (tb := exc.__traceback__) is None:
+        return None
+
+    frame = next(
+        (
+            frame
+            for frame in reversed(traceback.extract_tb(tb))
+            # Skip frames like "<stdin>" or "<frozen importlib._bootstrap>"
+            if not frame.filename.startswith("<")
+        ),
+        None,
+    )
+
+    if frame is None:
+        return None
+
+    filename = relpath(frame.filename)
+    col = f":{frame.colno + 1}" if frame.colno is not None else ""
+
+    return f"in [magenta]{frame.name}()[/] at [cyan]{filename}:{frame.lineno}{col}[/]"
+
+
+def causes_of(error: ZordError) -> str:
+    if not (causes := error.causes()):
+        return ""
+
+    lines = ["", "[yellow]caused by:[/]"]
+
+    for i, cause in enumerate(causes):
+        text = cause.msg if isinstance(cause, SyntaxError) else str(cause)
+        message = f": {text}" if text else ""
+        lines.append(f"    {i}: [magenta]{type(cause).__name__}[/]{message}")
+
+        if where := location_of(cause):
+            lines.append(f"       {where}")
+
+    return "\n".join(lines)
+
+
+def show_causes(error: ZordError) -> None:
+    if causes := causes_of(error):
+        console.stderr(causes)
+
+    for cause in error.causes():
+        if (
+            isinstance(cause, subprocess.CalledProcessError)
+            and isinstance(stderr := cause.stderr, str)
+            and stderr
+        ):
+            console.stderr("[yellow]captured stderr:[/]")
+            sys.stderr.write(stderr)
+            if not stderr.endswith("\n"):
+                sys.stderr.write("\n")
+
+
+def run(tasks: Sequence[Task], /) -> None:
+    for i, task in enumerate(tasks):
+        if len(tasks) > 1:
+            console.stdout(f"[yellow]$[/] [cyan]{task.id}[/]")
+        task.call()
+        if len(tasks) > 1 and i < len(tasks) - 1:
+            console.stdout("")
+
+
+def show(tasks: Sequence[Task], taskfile: str, /) -> None:
+    total = len(tasks)
+    label = "task" if total == 1 else "tasks"
+    legend = " (* = default)" if tasks else ""
+    header = f"{taskfile}: [dim]{total} {label}{legend}[/]"
+    console.stdout(header)
+
+    if not tasks:
+        return
+
+    console.stdout("")
+    width = max(len(task.id) for task in tasks) + 1
+
+    for task in tasks:
+        star = "[yellow]*[/]" if task.default else " "
+        description = task.description.splitlines()[0] if task.description else ""
+        desc = f"  [dim]{description}[/]" if description else ""
+        id = task.id.ljust(width) if description else task.id
+        console.stdout(f"  {star} [cyan]{id}[/]{desc}")
+
+
+def diagnostic_for(error: TaskDefinitionError) -> tuple[str, str]:
+
+    match error:
+        case SignatureInspectionError(id=id, source=source):
+            message = f": {source}" if str(source) else ""
+            return (
+                f"could not inspect task [cyan]{id!r}[/] signature",
+                f"signature inspection raised [magenta]{type(source).__name__}[/]{message}",
+            )
+
+        case UnsupportedTaskFunctionError(id=id, kind=kind):
+            return (
+                f"task [cyan]{id!r}[/] is an unsupported [magenta]{kind} function[/]",
+                "wrap it in a regular task that runs or consumes it explicitly",
+            )
+
+        case DuplicateTaskIdError(id=id):
+            return (
+                f"duplicate task id [yellow]{id!r}[/]",
+                "two functions resolved to the same id; use [magenta]@task(name=...)[/] to disambiguate",
+            )
+
+        case VarKeywordError(id=id, param=param):
+            return (
+                f"task [cyan]{id!r}[/] cannot use [magenta]**{param}[/]",
+                "variadic keyword args are not supported; list parameters explicitly",
+            )
+
+        case MissingDefaultError(id=id, param=param):
+            return (
+                f"task [cyan]{id!r}[/] has parameter [magenta]{param!r}[/] without a default",
+                "all task parameters must have default values",
+            )
+
+        case PositionalBoolError(id=id, param=param):
+            return (
+                f"task [cyan]{id!r}[/] has positional bool parameter [magenta]{param!r}[/]",
+                f"bool parameters must be keyword-only (use [magenta]'*, {param}: bool = ...'[/])",
+            )
+
+        case UnsupportedAnnotationError(annotation=ann, id=id, param=param):
+            supported = ", ".join(
+                f"[magenta]{type.__name__}[/]" for type in annotation.SCALARS
+            )
+            return (
+                f"task [cyan]{id!r}[/] parameter [magenta]{param!r}[/]: unsupported annotation [magenta]{ann!r}[/]",
+                f"supported types: {supported}",
+            )
+
+        case MixedVariadicSignatureError(id=id, param=param):
+            return (
+                f"task [cyan]{id!r}[/] cannot mix [magenta]*{param}[/] with other parameters",
+                f"remove the other parameters or replace [magenta]*{param}[/] with explicit parameters",
+            )
+
+        case ReservedOptionError(id=id, option=option, param=param):
+            return (
+                f"task [cyan]{id!r}[/] parameter [magenta]{param!r}[/] conflicts with reserved option [yellow]{option!r}[/]",
+                f"rename the parameter; [yellow]{option}[/] is reserved for task help",
+            )
+
+        case BooleanOptionConflictError(
+            id=id,
+            option=option,
+            param=param,
+            conflict=conflict,
+        ):
+            return (
+                f"task [cyan]{id!r}[/] parameters [magenta]{param!r}[/] and [magenta]{conflict!r}[/] both define option [yellow]{option!r}[/]",
+                "rename one parameter so its command-line option is unique",
+            )
+
+        case InvalidTaskIdError(ids=ids):
+            prefix = "ids" if len(ids) > 1 else "id"
+            quoted = ", ".join(f"[yellow]{n!r}[/]" for n in ids)
+            return (
+                f"invalid task {prefix} {quoted}",
+                (
+                    "ids must start with a letter, end with a letter or number, "
+                    "and contain only printable non-whitespace characters"
+                ),
+            )
+
+        case _:
+            raise AssertionError(
+                f"unhandled TaskDefinitionError: {type(error).__name__}: {error}"
+            )

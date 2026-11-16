@@ -1,0 +1,252 @@
+from __future__ import annotations
+
+import argparse
+import builtins
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+from enum import Enum, auto
+from importlib.metadata import version
+from typing import Final
+
+from ..annotation import IntLiteralType, ScalarType, StringLiteralType, Untyped
+from ..model import Task
+from ..signature import FixedSignature, Parameter, VariadicSignature
+
+TASKFILE: Final = "tasks.py"
+
+
+class ZordFlag(Enum):
+    DEFAULT = auto()
+    LIST = auto()
+
+
+@dataclass(frozen=True, slots=True)
+class RunSelected:
+    """zord <task> [<task> ...]"""
+
+    names: Sequence[str]
+
+
+@dataclass(frozen=True, slots=True)
+class Invoke:
+    """zord <task> -- [<arg> ...]"""
+
+    name: str
+    argv: Sequence[str]
+
+
+type Command = ZordFlag | RunSelected | Invoke
+type ArgsKwargs = tuple[Sequence[object], Mapping[str, object]]
+
+
+@dataclass(slots=True)
+class TaskParser:
+    task: Task
+    parser: argparse.ArgumentParser
+
+    def __init__(self, task: Task, /) -> None:
+        self.task = task
+        self.parser = argparse.ArgumentParser(
+            prog=f"zord {task.id} --",
+            description=task.description,
+            allow_abbrev=False,
+        )
+
+    def parse(self, argv: Sequence[str]) -> ArgsKwargs:
+        match self.task.signature:
+            case VariadicSignature(name=name, type=type, kwargs=kwargs):
+                for param in kwargs:
+                    self.add_kwarg(param)
+
+                metavar = name.replace("_", "-")
+                match type:
+                    case ScalarType(scalar):
+                        self.parser.add_argument(
+                            name,
+                            nargs="*",
+                            type=scalar,
+                            metavar=metavar,
+                        )
+                    case Untyped():
+                        self.parser.add_argument(name, nargs="*", metavar=metavar)
+
+                ns = self.parser.parse_intermixed_args(argv)
+                pos = getattr(ns, name)
+                kw = {}
+
+                for param in kwargs:
+                    kw[param.name] = getattr(ns, param.name)
+
+                return (pos, kw)
+
+            case FixedSignature(parameters=parameters):
+                for param in parameters:
+                    if param.is_keyword:
+                        self.add_kwarg(param)
+                    else:
+                        self.add_arg(param)
+
+                ns = self.parser.parse_args(argv)
+                pos: list[object] = []
+                kw: dict[str, object] = {}
+
+                for param in parameters:
+                    val = getattr(ns, param.name)
+                    if param.is_keyword:
+                        kw[param.name] = val
+                    else:
+                        pos.append(val)
+
+                return pos, kw
+
+    def add_kwarg(self, param: Parameter) -> None:
+        flag = f"--{param.name.replace('_', '-')}"
+        match param.type:
+            case Untyped():
+                self.parser.add_argument(
+                    flag,
+                    default=param.default,
+                    help=f"default: {param.default}",
+                )
+
+            case ScalarType(builtins.bool):
+                self.parser.add_argument(
+                    flag,
+                    action=argparse.BooleanOptionalAction,
+                    default=param.default,
+                    help=f"default: {param.default}",
+                )
+
+            case ScalarType(type):
+                self.parser.add_argument(
+                    flag,
+                    type=type,
+                    default=param.default,
+                    help=f"default: {param.default}",
+                )
+
+            case StringLiteralType(values) | IntLiteralType(values) as lit:
+                self.parser.add_argument(
+                    flag,
+                    type=lit.type,
+                    choices=values,
+                    default=param.default,
+                    # The default metavar for choices doesn't do spaces after comma
+                    # so we have to intervene.
+                    metavar=f"{{{', '.join(str(v) for v in values)}}}",
+                    help=f"default: {param.default}",
+                )
+
+    def add_arg(self, param: Parameter) -> None:
+        metavar = param.name.replace("_", "-")
+        match param.type:
+            case Untyped():
+                self.parser.add_argument(
+                    param.name,
+                    nargs="?",
+                    default=param.default,
+                    metavar=metavar,
+                    help=f"default: {param.default}",
+                )
+
+            case ScalarType(type):
+                self.parser.add_argument(
+                    param.name,
+                    type=type,
+                    nargs="?",
+                    default=param.default,
+                    metavar=metavar,
+                    help=f"default: {param.default}",
+                )
+
+            case StringLiteralType(values) | IntLiteralType(values) as literal:
+                self.parser.add_argument(
+                    param.name,
+                    type=literal.type,
+                    choices=values,
+                    nargs="?",
+                    default=param.default,
+                    # The default metavar for choices doesn't do spaces after comma
+                    # so we have to intervene.
+                    metavar=f"{{{', '.join(str(v) for v in values)}}}",
+                    help=f"default: {param.default}",
+                )
+
+
+def command(argv: Sequence[str]) -> Command:
+    has_dash = "--" in argv
+    if has_dash:
+        pivot = argv.index("--")
+        head, tail = argv[:pivot], argv[pivot + 1 :]
+    else:
+        head, tail = argv, ()
+
+    parser = argparse.ArgumentParser(
+        prog="zord",
+        allow_abbrev=False,
+        usage=(
+            "%(prog)s [--list | --default]\n"
+            "       %(prog)s <task> [<task> ...]\n"
+            "       %(prog)s <task> -- [<arg> ...]"
+        ),
+        description=(
+            f"Run tasks from {TASKFILE}.\n\n"
+            "Omit <task> to list available tasks.\n"
+            "Specify multiple tasks to run them in order.\n"
+            "Use '--' to pass arguments to a single task."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument(
+        "-d",
+        "--default",
+        action="store_true",
+        help="run default tasks only",
+    )
+    group.add_argument(
+        "-l",
+        "--list",
+        action="store_true",
+        help="list available tasks without running them",
+    )
+    group.add_argument(
+        "-V",
+        "--version",
+        action="version",
+        version=f"%(prog)s {version('zord')}",
+    )
+    group.add_argument(
+        "tasks",
+        metavar="<task>",
+        nargs="*",
+        help="tasks to run in order",
+    )
+
+    args = parser.parse_args(head)
+
+    if has_dash:
+        if args.default:
+            parser.error("'--' cannot be combined with '--default'")
+        if args.list:
+            parser.error("'--' cannot be combined with '--list'")
+
+        match args.tasks:
+            case [name]:
+                return Invoke(name=name, argv=tail)
+            case []:
+                parser.error("no task specified before '--'")
+            case _:
+                parser.error("exactly one task must precede '--'")
+
+    if args.default:
+        return ZordFlag.DEFAULT
+
+    if args.list:
+        return ZordFlag.LIST
+
+    if args.tasks:
+        return RunSelected(names=args.tasks)
+
+    return ZordFlag.LIST

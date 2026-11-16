@@ -1,0 +1,40 @@
+[project]
+name = "zord"
+version = "0.1.0"
+description = "A minimal, correct, user-friendly task runner"
+readme = "README.md"
+requires-python = ">=3.14"
+license = "MPL-2.0"
+license-files = ["LICENSE"]
+authors = [
+  { name = "Ravencentric", email = "78981416+Ravencentric@users.noreply.github.com" }
+]
+dependencies = []
+
+[project.scripts]
+zord = "zord.cli:main"
+
+[project.urls]
+Repository = "https://github.com/Ravencentric/zord"
+Issues = "https://github.com/Ravencentric/zord/issues"
+
+[dependency-groups]
+dev = [
+  "pyrefly>=1.4",
+  "pytest>=9",
+  "ruff>=0.17",
+]
+
+[build-system]
+requires = ["uv_build>=0.12,<0.13"]
+build-backend = "uv_build"
+
+[tool.pyrefly]
+preset = "strict"
+project-includes = ["tasks.py", "src/**/*.py", "tests/typing/**/*.py"]
+
+[tool.ruff.lint]
+extend-ignore = ["FURB189"]
+
+[tool.uv]
+exclude-newer = "1 week"

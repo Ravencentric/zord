@@ -1,0 +1,180 @@
+from __future__ import annotations
+
+import difflib
+from collections.abc import Sequence
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .model import TaskId
+
+
+class ZordError(Exception):
+    def __init__(self, msg: str) -> None:
+        self.msg = msg
+        super().__init__(msg)
+
+    def causes(self) -> list[BaseException]:
+        causes: list[BaseException] = []
+        current: BaseException = self
+
+        while True:
+            linked = current.__cause__
+            if linked is None and not current.__suppress_context__:
+                linked = current.__context__
+
+            if (
+                linked is None
+                or linked is self
+                or any(linked is cause for cause in causes)
+            ):
+                break
+
+            causes.append(linked)
+            current = linked
+
+        return causes
+
+
+class TaskFileNotFoundError(ZordError):
+    def __init__(self, file: Path) -> None:
+        self.file = file
+        msg = f"task file not found: {file}"
+        super().__init__(msg)
+
+
+class InvalidTaskFileError(ZordError):
+    def __init__(self, file: Path) -> None:
+        self.file = file
+        msg = f"could not load {file}"
+        super().__init__(msg)
+
+
+class UndefinedTaskIdError(ZordError):
+    def __init__(self, *ids: str) -> None:
+        self.ids = tuple(ids)
+        label = "task" if len(self.ids) == 1 else "tasks"
+        msg = f"unknown {label} {', '.join(repr(n) for n in self.ids)}"
+        super().__init__(msg)
+
+    def suggest(self, available: Sequence[TaskId]) -> Sequence[str]:
+        hints = []
+        for id in self.ids:
+            match = difflib.get_close_matches(id, available, n=1)
+            if match:
+                hints.append(f"{match[0]!r}")
+
+        return hints
+
+
+class TaskError(ZordError):
+    def __init__(self, id: TaskId) -> None:
+        self.id = id
+        msg = f"task {id!r} failed"
+        super().__init__(msg)
+
+
+class TaskDefinitionError(ZordError):
+    pass
+
+
+class SignatureInspectionError(TaskDefinitionError):
+    def __init__(self, id: TaskId, source: BaseException) -> None:
+        self.id = id
+        self.source = source
+        msg = f"could not inspect task {id!r} signature"
+        super().__init__(msg)
+
+
+class UnsupportedTaskFunctionError(TaskDefinitionError):
+    def __init__(self, id: TaskId, kind: str) -> None:
+        self.id = id
+        self.kind = kind
+        msg = f"task {id!r} is an unsupported {kind} function"
+        super().__init__(msg)
+
+
+class DuplicateTaskIdError(TaskDefinitionError):
+    def __init__(self, id: TaskId) -> None:
+        self.id = id
+        msg = f"duplicate task id {id!r}"
+        super().__init__(msg)
+
+
+class VarKeywordError(TaskDefinitionError):
+    def __init__(self, id: TaskId, param: str) -> None:
+        self.id = id
+        self.param = param
+        msg = f"task {id!r} cannot use **{param}"
+        super().__init__(msg)
+
+
+class MissingDefaultError(TaskDefinitionError):
+    def __init__(self, id: TaskId, param: str) -> None:
+        self.id = id
+        self.param = param
+        msg = f"task {id!r} has parameter {param!r} without a default"
+        super().__init__(msg)
+
+
+class PositionalBoolError(TaskDefinitionError):
+    def __init__(self, id: TaskId, param: str) -> None:
+        self.id = id
+        self.param = param
+        msg = f"task {id!r} has positional bool parameter {param!r}"
+        super().__init__(msg)
+
+
+class UnsupportedAnnotationError(TaskDefinitionError):
+    def __init__(self, id: TaskId, param: str, annotation: object) -> None:
+        self.annotation = annotation
+        self.id = id
+        self.param = param
+        msg = f"task {id!r} parameter {param!r}: unsupported annotation {annotation!r}"
+        super().__init__(msg)
+
+
+class MixedVariadicSignatureError(TaskDefinitionError):
+    def __init__(self, id: TaskId, param: str) -> None:
+        self.id = id
+        self.param = param
+        msg = f"task {id!r} cannot mix *{param} with other parameters"
+        super().__init__(msg)
+
+
+class ReservedOptionError(TaskDefinitionError):
+    def __init__(self, id: TaskId, param: str) -> None:
+        self.id = id
+        self.param = param
+        self.option = f"--{param.replace('_', '-')}"
+        msg = (
+            f"task {id!r} parameter {param!r} "
+            f"conflicts with reserved option {self.option!r}"
+        )
+        super().__init__(msg)
+
+
+class BooleanOptionConflictError(TaskDefinitionError):
+    def __init__(
+        self,
+        id: TaskId,
+        param: str,
+        conflict: str,
+    ) -> None:
+        self.id = id
+        self.param = param
+        self.conflict = conflict
+        self.option = f"--no-{param.replace('_', '-')}"
+        msg = (
+            f"task {id!r} parameters {param!r} and {conflict!r} "
+            f"both define option {self.option!r}"
+        )
+        super().__init__(msg)
+
+
+class InvalidTaskIdError(TaskDefinitionError):
+    def __init__(self, *ids: str) -> None:
+        self.ids = ids
+        label = "task id" if len(self.ids) == 1 else "task ids"
+        msg = f"invalid {label} {', '.join(repr(n) for n in self.ids)}"
+        super().__init__(msg)
