@@ -4,7 +4,7 @@ import json
 import os
 import subprocess
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from pathlib import Path
 from string.templatelib import Template
 
@@ -12,7 +12,7 @@ import pytest
 
 from zord import Capture, Cmd, Run
 from zord.cli import main
-from zord.command import Environment, Executable
+from zord.command import Environment, Executable, StrOrPath
 
 
 @pytest.mark.parametrize("constructor", [Cmd, Executable.parse])
@@ -454,6 +454,60 @@ def test_empty_argument_additions_are_noops() -> None:
     command = Cmd(sys.executable).args(t"existing")
     flags: list[str] = []
     assert command.args(*flags).inner.args == command.inner.args
+
+
+@pytest.mark.parametrize(
+    ("addition", "expected"),
+    [
+        ("two words", ("two words",)),
+        (Path("some file.py"), ("some file.py",)),
+        (t"one {Path('two words')}", ("one", "two words")),
+        (["one", Path("two words")], ("one", "two words")),
+        ([], ()),
+    ],
+)
+def test_command_addition(
+    addition: Template | StrOrPath | Iterable[StrOrPath],
+    expected: tuple[str, ...],
+) -> None:
+    command = Cmd(sys.executable).args("-c", "pass") + addition
+    assert command.run().args == ("-c", "pass", *expected)
+
+
+def test_command_iadd_preserves_shared_base_and_snapshots_inputs(
+    tmp_path: Path,
+) -> None:
+    values = ["one", Path("two words")]
+    script = "import os; print(os.getcwd()); print(os.environ['ZORD_ADD']); raise SystemExit(7)"
+    base = (
+        Cmd(sys.executable)
+        .args("-c", script)
+        .cwd(tmp_path)
+        .env({"ZORD_ADD": "ok"})
+        .check(False)
+    )
+    derived = base
+    derived += values
+    values.clear()
+
+    result = derived.capture()
+    assert result.args == ("-c", script, "one", "two words")
+    assert result.returncode == 7
+    assert result.stdout.splitlines() == [str(tmp_path), "ok"]
+    assert base.capture().args == ("-c", script)
+
+
+def test_command_addition_accepts_iterators() -> None:
+    command = Cmd(sys.executable).args("-c", "pass") + iter(["one", "two words"])
+    assert command.run().args == ("-c", "pass", "one", "two words")
+
+
+def test_command_addition_rejects_invalid_arguments() -> None:
+    command = Cmd(sys.executable)
+    with pytest.raises(TypeError):
+        command + 3  # pyrefly: ignore[unsupported-operation]
+    with pytest.raises(TypeError):
+        command + [t"one", "two"]  # pyrefly: ignore[unsupported-operation]
 
 
 def test_run_delivers_arguments_and_inherits_streams(

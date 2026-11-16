@@ -4,10 +4,11 @@ import os
 import shlex
 import shutil
 import subprocess
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 from string.templatelib import Interpolation, Template, convert
+from types import NotImplementedType
 from typing import Any, final, overload, override
 
 type StrOrPath = str | os.PathLike[str]
@@ -181,6 +182,15 @@ class Cmd:
 
     def args(self, *args: StrOrPath | Template) -> Cmd:
         return command(self, args=self.inner.args.concat(args))
+
+    def __add__(
+        self, args: Template | StrOrPath | Iterable[StrOrPath], /
+    ) -> Cmd | NotImplementedType:
+        if isinstance(args, (Template, str, os.PathLike)):
+            return self.args(args)
+        if isinstance(args, Iterable):
+            return self.args(*args)
+        return NotImplemented
 
     def cwd(self, path: StrOrPath | None, /) -> Cmd:
         return command(self, cwd=Path(path) if path is not None else None)

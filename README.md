@@ -227,6 +227,22 @@ flags = ["-q", "-k", "slow tests"]
 Cmd("pytest").args(*flags).run()
 ```
 
+You can also append arguments with `+` or `+=`, passing an iterable directly:
+
+```python
+command = Cmd("pytest") + flags
+command += "--verbose"
+command += t"--durations 10"
+```
+
+The above is equivalent to the following:
+
+```python
+command = Cmd("pytest").args(*flags)
+command = command.args("--verbose")
+command = command.args(t"--durations 10")
+```
+
 A regular string is passed as is, which
 is important for filenames with spaces.
 

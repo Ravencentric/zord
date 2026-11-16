@@ -11,9 +11,9 @@ def check(*, fix: bool = True) -> None:
     typechecker = uv.args(t"pyrefly check")
 
     if fix:
-        linter = linter.args("--fix")
+        linter += "--fix"
     else:
-        formatter = formatter.args("--check")
+        formatter += "--check"
 
     linter.run()
     formatter.run()
