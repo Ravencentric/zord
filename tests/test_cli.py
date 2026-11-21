@@ -503,7 +503,7 @@ def test_empty_list_succeeds(capsys: pytest.CaptureFixture[str]) -> None:
 
     assert execute(ZordFlag.LIST, registry) == 0
     captured = capsys.readouterr()
-    assert captured.out == "tasks.py: 0 tasks\n"
+    assert captured.out == "── tasks.py: 0 tasks\n"
     assert captured.err == ""
 
 
@@ -529,7 +529,7 @@ def test_list(capsys: pytest.CaptureFixture[str]) -> None:
     captured = capsys.readouterr()
     assert captured.out == dedent(
         """\
-        tasks.py: 3 tasks (* = default)
+        ── tasks.py: 3 tasks (* = default)
 
           * lint     Check code.
             sum

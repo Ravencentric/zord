@@ -136,7 +136,16 @@ def show(tasks: Sequence[Task], taskfile: str, /) -> None:
     total = len(tasks)
     label = "task" if total == 1 else "tasks"
     legend = " (* = default)" if tasks else ""
-    header = f"{taskfile}: [dim]{total} {label}{legend}[/]"
+    prefix = "──"
+
+    # Workaround for Windows where the above prefix
+    # results in a unicode error.
+    try:
+        prefix.encode(sys.stdout.encoding or "utf-8")
+    except UnicodeEncodeError:
+        prefix = "--"
+
+    header = f"[dim]{prefix}[/] {taskfile}: [dim]{total} {label}{legend}[/]"
     console.stdout(header)
 
     if not tasks:
