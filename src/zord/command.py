@@ -11,6 +11,8 @@ from string.templatelib import Interpolation, Template, convert
 from types import NotImplementedType
 from typing import Any, final, overload, override
 
+from . import console
+
 type StrOrPath = str | os.PathLike[str]
 
 
@@ -20,6 +22,28 @@ class Executable(os.PathLike[str]):
     """An absolute path to an existing executable file, preserving symlinks."""
 
     inner: str
+
+    @property
+    def name(self) -> str:
+        name = os.path.basename(self.inner)
+        if os.name == "nt":
+            stem, extension = os.path.splitext(name)
+            if extension.casefold() in {
+                ".bat",
+                ".cmd",
+                ".com",
+                ".cpl",
+                ".exe",
+                ".js",
+                ".jse",
+                ".msc",
+                ".vbe",
+                ".vbs",
+                ".wsf",
+                ".wsh",
+            }:
+                return stem
+        return name
 
     @classmethod
     def parse(cls, value: StrOrPath, /) -> Executable:
@@ -218,6 +242,7 @@ class Cmd:
 
     def run(self) -> Run:
         state = self.inner
+        console.command(state.executable.name, *state.args.inner)
         completed = subprocess.run(
             (state.executable, *state.args.inner),
             cwd=state.cwd,
@@ -230,15 +255,24 @@ class Cmd:
 
     def capture(self) -> Capture:
         state = self.inner
-        completed = subprocess.run(
-            (state.executable, *state.args.inner),
-            cwd=state.cwd,
-            env=state.env.inherit(),
-            capture_output=True,
-            encoding="utf-8",
-            check=state.check,
-            shell=False,
-        )
+        console.command(state.executable.name, *state.args.inner, end="  ")
+        try:
+            completed = subprocess.run(
+                (state.executable, *state.args.inner),
+                cwd=state.cwd,
+                env=state.env.inherit(),
+                capture_output=True,
+                encoding="utf-8",
+                check=False,
+                shell=False,
+            )
+        except BaseException:
+            console.stderr("")
+            raise
+
+        console.status(completed.returncode)
+        if state.check:
+            completed.check_returncode()
 
         return Capture(
             state.executable.inner,

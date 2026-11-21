@@ -4,6 +4,7 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
+from .. import console
 from ..errors import (
     InvalidTaskIdError,
     TaskDefinitionError,
@@ -13,7 +14,6 @@ from ..errors import (
 )
 from ..model import TaskId
 from ..registry import TaskRegistry
-from . import console
 from .fmt import causes_of, diagnostic_for, invoke, run, show
 from .parser import (
     TASKFILE,

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import shlex
+import subprocess
 import sys
 from enum import IntEnum
 from functools import cache
@@ -73,13 +75,45 @@ def render(s: str) -> str:
 def stdout(s: str, /) -> None:
     if s:
         s = render(s)
-    print(s, file=sys.stdout)
+    print(s, file=sys.stdout, flush=True)
 
 
 def stderr(s: str, /) -> None:
     if s:
         s = render(s)
-    print(s, file=sys.stderr)
+    print(s, file=sys.stderr, flush=True)
+
+
+def heading(name: str, /) -> None:
+    stderr(f"[dim]──[/] [cyan]{name}[/]")
+
+
+def command(program: str, /, *args: str, end: str = "\n") -> None:
+    sys.stdout.flush()
+    argv = []
+    for arg in (program, *args):
+        lines = arg.splitlines()
+        first = lines[0] if lines else ""
+        preview = []
+        for char in first:
+            if char.isprintable():
+                preview.append(char)
+            else:
+                preview.append(repr(char)[1:-1])
+        if first != arg:
+            preview.append("...")
+        argv.append("".join(preview))
+
+    text = subprocess.list2cmdline(argv) if os.name == "nt" else shlex.join(argv)
+    prompt = render("[yellow]$[/]")
+    print(f"\n{prompt} {text}", file=sys.stderr, end=end, flush=True)
+
+
+def status(returncode: int, /) -> None:
+    if returncode == 0:
+        stderr("[green]✓[/] captured")
+    else:
+        stderr(f"[red]✗[/] exit {returncode}")
 
 
 def error(s: str, /) -> None:

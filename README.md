@@ -64,6 +64,9 @@ The examples below use `zord` for brevity.
 
 ## Usage
 
+Zord's Python APIs are for `tasks.py` files run by Zord. Use outside those task
+files is unsupported.
+
 Create a `tasks.py` file in your project root and decorate your functions with
 `@task`:
 

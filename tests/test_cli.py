@@ -554,24 +554,42 @@ def test_default_rejects_empty_selection(
     assert captured.err == "error: no default tasks\n"
 
 
-def test_invoked_task_keeps_live_child_streams_separate(
+def test_invoked_task_keeps_live_and_captured_output_separate(
     capfd: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
+    executable = Path(sys.executable)
+    monkeypatch.setenv("PATHEXT", ".CMD")
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "emit.py").write_text(
+        "import sys\n"
+        "sys.stdout.buffer.write(sys.argv[1].encode('utf-8'))\n"
+        "print('warning', file=sys.stderr)\n",
+        encoding="utf-8",
+    )
+
     @task
     def emit(message: str = "default") -> None:
-        Cmd(sys.executable).args(
-            "-c",
-            "import sys; print(sys.argv[1]); print('warning', file=sys.stderr)",
-            message,
-        ).run()
+        command = Cmd(executable).args("emit.py", message)
+        command.run()
+        command.capture()
 
     registered = Task.new(emit, emit.__zord_taskspec__)
     registry = TaskRegistry(Path("tasks.py"), {registered.id: registered})
 
-    assert execute(Invoke("emit", ("payload",)), registry) == 0
+    assert execute(Invoke("emit", ("payload\ncontinued",)), registry) == 0
     captured = capfd.readouterr()
-    assert captured.out.splitlines() == ["payload"]
-    assert captured.err.splitlines() == ["── emit", "warning"]
+    assert captured.out == "payload\ncontinued"
+    name = executable.stem if sys.platform == "win32" else executable.name
+    assert captured.err.splitlines() == [
+        "── emit",
+        "",
+        f"$ {name} emit.py payload...",
+        "warning",
+        "",
+        f"$ {name} emit.py payload...  ✓ captured",
+    ]
 
 
 @pytest.mark.parametrize(

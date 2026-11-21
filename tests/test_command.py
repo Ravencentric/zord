@@ -548,7 +548,7 @@ def test_run_delivers_arguments_and_inherits_streams(
     )
     captured = capfd.readouterr()
     assert json.loads(captured.out) == [os.fspath(value) for value in values]
-    assert captured.err.splitlines() == ["warning"]
+    assert "warning" in captured.err.splitlines()
 
 
 @pytest.mark.parametrize("capture", [False, True], ids=["run", "capture"])
@@ -670,6 +670,7 @@ def test_captured_failure_shows_cause_in_cli(
     assert main(("fail",)) == 1
     output = capsys.readouterr()
     assert output.out == ""
+    assert "  ✗ exit 7\n" in output.err
     assert "caused by:\n    0: CalledProcessError:" in output.err
     assert "captured stderr:" not in output.err
     assert "missing configuration" not in output.err

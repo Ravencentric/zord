@@ -1,8 +1,8 @@
 # Zord CLI output plan
 
-**Status** · Task headings and the `── zord` error section use the agreed
-stderr routing. Review the updated transcripts before moving on to live
-command lines.
+**Status** · Live command lines and captured command statuses are ready for
+review. Run the demo tasks below to see the current design. The next open
+decision is how to handle quiet commands.
 
 Zord should make it easy to see which task and command produced each part of a
 terminal transcript. Zord’s own errors should be easy to find, and the layout
@@ -19,12 +19,15 @@ available. A successful run ends with the last task's output.
 
 ```text
 ── check
+
 $ uv run ruff check
 All checks passed!
+
 $ uv run ruff format --check
 12 files already formatted
 
 ── test
+
 $ uv run pytest -q
 1 failed, 27 passed
 
@@ -42,6 +45,7 @@ output returned to the task.
 ── release
 $ git rev-parse --short HEAD  ✓ captured
 $ git fetch origin           ✓
+
 $ uv build
 Successfully built zord-0.1.0
 ```
@@ -77,6 +81,7 @@ The terminal shows Zord's messages:
 
 ```text
 ── version
+
 $ python -c "print('0.1.0')"
 ```
 
@@ -86,7 +91,9 @@ The file `version.txt` contains only:
 0.1.0
 ```
 
-## Task-level implementation — ready for review
+## Task-level implementation
+
+Committed as `002ac24`.
 
 Selected tasks, default tasks, and single-task invocations with `--` share the
 same output format. Each task gets a heading. A failure stops the batch and
@@ -135,9 +142,92 @@ Checks run:
 - CLI tests cover successful runs without a footer, failed and interrupted
   runs with a `── zord` section, and separate live child streams.
 
-The next open question is whether these task-level transcripts read well.
-After review, the next step is to try live command lines
-with streaming output, a failure, and a command that ends mid-line.
+## Live command lines — ready for review
+
+`Cmd.run()` prints a `$` line to stderr before launching a child. Each `$` line
+starts with a newline, including the first command under a task heading. This
+ends any partial line from the previous command, or adds a blank line after a
+complete line.
+The line shows the resolved executable's filename. On Windows it omits common
+executable extensions such as `.exe`, `.cmd`, and `.bat`.
+The preview shows the first line of a multiline argument followed by `...`.
+The child receives the full argument.
+Child streams stay inherited, so redirection preserves child stdout exactly.
+
+The passing preview included both kinds of spacing.
+
+```text
+── check
+
+$ python emit.py ready
+Ready
+
+$ python emit.py working
+working...
+$ python emit.py done
+Done
+```
+
+The failing batch continued from `check` into `test`.
+
+```text
+── test
+
+$ python emit.py fail
+A check failed
+
+── zord
+error: test failed
+skipped: later
+```
+
+The `caused by:` block followed with `CalledProcessError` and exit status 1.
+With stdout redirected, `check` produced `Ready\nworking...Done\n` on stdout.
+
+All 260 tests passed, along with Ruff lint and formatting and Pyrefly. The
+CLI previews verified successful and failing exit codes, combined output,
+and separate stdout and stderr.
+
+## Captured command statuses — ready for review
+
+`Cmd.capture()` and `Cmd.stdout()` print the `$` command to stderr before
+launching it. When it exits, they append `✓ captured` or `✗ exit N` to the same
+line, including when `.check(False)` lets the task continue. If no exit code
+is available, the line ends before the error diagnostic. Captured output stays
+available to the task.
+
+```text
+── verify
+
+$ python -c print(42)  ✓ captured
+
+── fail
+
+$ python -c "raise SystemExit(7)"  ✗ exit 7
+
+── zord
+error: fail failed
+```
+
+The `caused by:` block followed with `CalledProcessError`. All 260 tests and
+the Ruff and Pyrefly checks passed. The next open question is whether to add a
+quiet command API and what its failures should show.
+
+## Runnable examples
+
+Run the [demo tasks](../examples/cli-output/tasks.py) from their directory.
+
+```console
+cd examples/cli-output
+uv run --locked --project ../.. zord --default
+uv run --locked --project ../.. zord live fail-live captured
+uv run --locked --project ../.. zord live fail-captured captured
+```
+
+The default run shows live output, a truncated argument preview, a line that
+ends mid-line, and a successful capture. Both failure runs skip `captured`.
+The live failure shows the child's stderr, and the captured failure shows
+`✗ exit 7` on the command line.
 
 ## Working together
 
@@ -151,17 +241,17 @@ question. Advance one step at a time.
 
 1. **Choose where output goes — agreed.** Zord's run messages go to stderr;
    live child stdout and stderr keep their respective streams, as described above.
-2. **Try one task-level change — ready for review.** Task headings and the
-   error section are implemented. Review the transcripts above before moving on.
-3. **Try one live command change.** Add command lines and check how they look
-   with streaming output and an error. Include a command that ends mid-line.
-4. **Try captured and quiet results separately.** Use the inline markers
-   above. Decide which failure details to show and whether Zord should offer
-   a quiet API before implementing that behavior.
+2. **Try one task-level change — implemented.** Task headings and the error
+   section use the agreed stderr routing.
+3. **Try one live command change — ready for review.** The examples above show
+   streaming output, a failure, and a command that ends mid-line.
+4. **Try captured and quiet results separately.** Captured statuses are ready
+   for review. Decide whether Zord should offer a quiet API and which failure
+   details it should show before implementing it.
 5. **Carry the heading style through to listings and help.** Review each in
    the terminal and choose which details belong in the output.
-6. **Choose the examples together.** Keep a small runnable corpus of the
-   passing, failing, and mixed cases that helped make decisions.
+6. **Choose the examples together.** The demo tasks cover the current passing,
+   failing, and mixed cases. Revisit them as the remaining output decisions land.
 
 ## Resume from another machine
 
