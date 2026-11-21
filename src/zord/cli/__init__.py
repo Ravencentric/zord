@@ -7,7 +7,6 @@ from pathlib import Path
 from ..errors import (
     InvalidTaskIdError,
     TaskDefinitionError,
-    TaskError,
     TaskFileNotFoundError,
     UndefinedTaskIdError,
     ZordError,
@@ -15,7 +14,7 @@ from ..errors import (
 from ..model import TaskId
 from ..registry import TaskRegistry
 from . import console
-from .fmt import diagnostic_for, run, show, show_causes
+from .fmt import causes_of, diagnostic_for, invoke, run, show
 from .parser import (
     TASKFILE,
     Command,
@@ -74,7 +73,8 @@ def cli(argv: Sequence[str] | None = None) -> int:
 
     except ZordError as error:
         console.error(error.msg)
-        show_causes(error)
+        if causes := causes_of(error):
+            console.stderr(causes)
         return 1
 
     return execute(cmd, registry)
@@ -88,18 +88,25 @@ def execute(cmd: Command, registry: TaskRegistry, /) -> int:
                 if not tasks:
                     console.error("no default tasks")
                     return 2
-                run(tasks)
+                first, *rest = tasks
+                return run(first, *rest)
+
+            case RunSelected(names=names):
+                tasks = registry.select(names)
+                if not tasks:
+                    console.error("no tasks selected")
+                    return 2
+                first, *rest = tasks
+                return run(first, *rest)
 
             case ZordFlag.LIST:
                 show(registry.all(), registry.file.name)
-
-            case RunSelected(names=names):
-                run(registry.select(names))
+                return 0
 
             case Invoke(name=name, argv=argv):
                 task = registry.get(name)
                 pos, kw = TaskParser(task).parse(argv)
-                task.call(*pos, **kw)
+                return invoke(task, *pos, **kw)
 
     # Raised by registry.select() or registry.get()
     except InvalidTaskIdError as error:
@@ -135,14 +142,8 @@ def execute(cmd: Command, registry: TaskRegistry, /) -> int:
 
         return 2
 
-    except TaskError as error:
-        console.error(f"task [cyan]{error.id!r}[/] failed")
-        show_causes(error)
-        return 1
-
     except ZordError as error:
         console.error(str(error))
-        show_causes(error)
+        if causes := causes_of(error):
+            console.stderr(causes)
         return 1
-
-    return 0

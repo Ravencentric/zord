@@ -649,14 +649,13 @@ def test_captured_failure_exposes_output() -> None:
     assert excinfo.value.stderr == "diagnostic\n"
 
 
-def test_captured_failure_prints_stderr_in_cli(
+def test_captured_failure_shows_cause_in_cli(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     script = (
-        "import sys; print('[red]' + 'missing configuration' + '[/]', "
-        "file=sys.stderr); sys.exit(7)"
+        "import sys; print('missing ' + 'configuration', file=sys.stderr); sys.exit(7)"
     )
     (tmp_path / "tasks.py").write_text(
         "import sys\n"
@@ -671,5 +670,6 @@ def test_captured_failure_prints_stderr_in_cli(
     assert main(("fail",)) == 1
     output = capsys.readouterr()
     assert output.out == ""
-    assert "CalledProcessError" in output.err
-    assert "[red]missing configuration[/]" in output.err
+    assert "caused by:\n    0: CalledProcessError:" in output.err
+    assert "captured stderr:" not in output.err
+    assert "missing configuration" not in output.err

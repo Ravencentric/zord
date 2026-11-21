@@ -1,13 +1,14 @@
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from textwrap import dedent
 
 import pytest
 
-from zord import task
+from zord import Cmd, task
 from zord.cli import execute, main
-from zord.cli.parser import RunSelected, ZordFlag
+from zord.cli.parser import Invoke, RunSelected, ZordFlag
 from zord.model import Task
 from zord.registry import TaskRegistry
 
@@ -396,7 +397,10 @@ def test_system_exit_while_loading_is_failure(
         (
             'raise RuntimeError("upload failed")',
             """\
-            error: task 'deploy' failed
+            ── deploy
+
+            ── zord
+            error: deploy failed
 
             caused by:
                 0: RuntimeError: upload failed
@@ -408,7 +412,10 @@ def test_system_exit_while_loading_is_failure(
         (
             'raise RuntimeError("upload failed") from None',
             """\
-            error: task 'deploy' failed
+            ── deploy
+
+            ── zord
+            error: deploy failed
 
             caused by:
                 0: RuntimeError: upload failed
@@ -418,7 +425,10 @@ def test_system_exit_while_loading_is_failure(
         (
             'raise RuntimeError("upload failed") from ValueError("explicit cause")',
             """\
-            error: task 'deploy' failed
+            ── deploy
+
+            ── zord
+            error: deploy failed
 
             caused by:
                 0: RuntimeError: upload failed
@@ -485,7 +495,7 @@ def test_keyboard_interrupt(
     assert main(("wait",)) == 130
     captured = capsys.readouterr()
     assert captured.out == ""
-    assert captured.err == "error: interrupted\n"
+    assert captured.err == "── wait\n\n── zord\nerror: interrupted\n"
 
 
 def test_empty_list_succeeds(capsys: pytest.CaptureFixture[str]) -> None:
@@ -544,18 +554,43 @@ def test_default_rejects_empty_selection(
     assert captured.err == "error: no default tasks\n"
 
 
+def test_invoked_task_keeps_live_child_streams_separate(
+    capfd: pytest.CaptureFixture[str],
+) -> None:
+    @task
+    def emit(message: str = "default") -> None:
+        Cmd(sys.executable).args(
+            "-c",
+            "import sys; print(sys.argv[1]); print('warning', file=sys.stderr)",
+            message,
+        ).run()
+
+    registered = Task.new(emit, emit.__zord_taskspec__)
+    registry = TaskRegistry(Path("tasks.py"), {registered.id: registered})
+
+    assert execute(Invoke("emit", ("payload",)), registry) == 0
+    captured = capfd.readouterr()
+    assert captured.out.splitlines() == ["payload"]
+    assert captured.err.splitlines() == ["── emit", "warning"]
+
+
 @pytest.mark.parametrize(
-    "command",
+    ("command", "skipped"),
     [
-        RunSelected(("fail", "later")),
-        ZordFlag.DEFAULT,
+        (RunSelected(("check", "fail", "later", "check")), "later, check"),
+        (ZordFlag.DEFAULT, "later"),
     ],
 )
 def test_multiple_tasks_stop_at_first_failure(
     command: RunSelected | ZordFlag,
+    skipped: str,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     called: list[str] = []
+
+    @task(default=True)
+    def check() -> None:
+        called.append("check")
 
     @task(default=True)
     def fail() -> None:
@@ -567,16 +602,19 @@ def test_multiple_tasks_stop_at_first_failure(
         called.append("later")
 
     tasks = (
+        Task.new(check, check.__zord_taskspec__),
         Task.new(fail, fail.__zord_taskspec__),
         Task.new(later, later.__zord_taskspec__),
     )
     registry = TaskRegistry(Path("tasks.py"), {task.id: task for task in tasks})
 
     assert execute(command, registry) == 1
-    assert called == ["fail"]
+    assert called == ["check", "fail"]
     captured = capsys.readouterr()
-    assert captured.out == "$ fail\n"
-    assert captured.err.startswith("error: task 'fail' failed\n")
+    assert captured.out == ""
+    assert captured.err.startswith(
+        f"── check\n\n── fail\n\n── zord\nerror: fail failed\nskipped: {skipped}\n"
+    )
 
 
 @pytest.mark.parametrize("code", [0, 2])
@@ -604,7 +642,10 @@ def test_system_exit_is_task_failure(
     assert execute(RunSelected(("stop", "later")), registry) == 1
     assert called == ["stop"]
     captured = capsys.readouterr()
-    assert captured.out == "$ stop\n"
+    assert captured.out == ""
+    assert captured.err.startswith(
+        "── stop\n\n── zord\nerror: stop failed\nskipped: later\n"
+    )
     assert f"0: SystemExit: {code}\n" in captured.err
 
 
@@ -623,8 +664,8 @@ def test_repeated_task_runs_once_per_occurrence(
     assert execute(RunSelected(("repeat", "repeat")), registry) == 0
     assert called == ["repeat", "repeat"]
     captured = capsys.readouterr()
-    assert captured.out == "$ repeat\n\n$ repeat\n"
-    assert captured.err == ""
+    assert captured.out == ""
+    assert captured.err == "── repeat\n\n── repeat\n"
 
 
 @pytest.mark.parametrize(
