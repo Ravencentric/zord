@@ -5,7 +5,7 @@ import sys
 import traceback
 from collections.abc import Sequence
 
-from .. import annotation
+from .. import annotation, console
 from ..errors import (
     BooleanOptionConflictError,
     DuplicateTaskIdError,
@@ -23,7 +23,6 @@ from ..errors import (
     ZordError,
 )
 from ..model import Task
-from . import console
 
 
 def relpath(filename: str, /) -> str:
@@ -79,14 +78,10 @@ def causes_of(error: ZordError) -> str:
     return "\n".join(lines)
 
 
-def heading(name: str, /) -> None:
-    console.stderr(f"[dim]──[/] [cyan]{name}[/]")
-
-
 def failure(message: str, /) -> None:
     sys.stdout.flush()
     console.stderr("")
-    heading("zord")
+    console.heading("zord")
     console.error(message)
 
 
@@ -97,7 +92,7 @@ def run(first: Task, /, *rest: Task) -> int:
         for i, task in enumerate(tasks):
             if i:
                 console.stderr("")
-            heading(task.id)
+            console.heading(task.id)
             task.call()
             sys.stdout.flush()
             passed += 1
@@ -120,7 +115,7 @@ def run(first: Task, /, *rest: Task) -> int:
 
 def invoke(task: Task, /, *args: object, **kwargs: object) -> int:
     try:
-        heading(task.id)
+        console.heading(task.id)
         task.call(*args, **kwargs)
         sys.stdout.flush()
 

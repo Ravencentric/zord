@@ -1,7 +1,7 @@
 from pytest import CaptureFixture, MonkeyPatch
 
-from zord.cli import console
-from zord.cli.console import Style
+from zord import console
+from zord.console import Style
 
 
 def test_style() -> None:
