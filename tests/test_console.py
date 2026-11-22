@@ -1,3 +1,5 @@
+import os
+
 from pytest import CaptureFixture, MonkeyPatch
 
 from zord import console
@@ -34,3 +36,26 @@ def test_render(monkeypatch: MonkeyPatch) -> None:
     monkeypatch.setattr(console, "can_colorize", lambda: False)
     assert console.can_colorize() is False
     assert console.render(text) == plain
+
+
+def test_heading_command_and_status_styles(
+    monkeypatch: MonkeyPatch, capsys: CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(console, "can_colorize", lambda: True)
+
+    console.heading("check")
+    console.command("my tool", "[red]", end="  ")
+    console.status(0)
+    console.command("tool", end="  ")
+    console.status(7)
+
+    executable = '"my tool"' if os.name == "nt" else "'my tool'"
+    argument = "[red]" if os.name == "nt" else "'[red]'"
+    prompt = f"{Style.YELLOW}${Style.RESET}"
+    assert capsys.readouterr().err == (
+        f"{Style.DIM}──{Style.RESET} {Style.CYAN}check{Style.RESET}\n"
+        f"\n{prompt} {Style.MAGENTA}{executable}{Style.RESET} {argument}"
+        f"  {Style.GREEN}✓{Style.RESET} {Style.DIM}(captured){Style.RESET}\n"
+        f"\n{prompt} {Style.MAGENTA}tool{Style.RESET}"
+        f"  {Style.RED}✗{Style.RESET} {Style.DIM}(exit 7){Style.RESET}\n"
+    )

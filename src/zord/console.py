@@ -104,16 +104,23 @@ def command(program: str, /, *args: str, end: str = "\n") -> None:
             preview.append("...")
         argv.append("".join(preview))
 
-    text = subprocess.list2cmdline(argv) if os.name == "nt" else shlex.join(argv)
-    prompt = render("[yellow]$[/]")
-    print(f"\n{prompt} {text}", file=sys.stderr, end=end, flush=True)
+    shellquoter = subprocess.list2cmdline if os.name == "nt" else shlex.join
+    executable, *arguments = argv
+    executable = shellquoter((executable,))
+    arguments = f" {shellquoter(arguments)}" if arguments else ""
+    prompt = "$"
+    if can_colorize():
+        prompt = f"{Style.YELLOW}${Style.RESET}"
+        executable = f"{Style.MAGENTA}{executable}{Style.RESET}"
+
+    print(f"\n{prompt} {executable}{arguments}", file=sys.stderr, end=end, flush=True)
 
 
 def status(returncode: int, /) -> None:
     if returncode == 0:
-        stderr("[green]✓[/] captured")
+        stderr("[green]✓[/] [dim](captured)[/]")
     else:
-        stderr(f"[red]✗[/] exit {returncode}")
+        stderr(f"[red]✗[/] [dim](exit {returncode})[/]")
 
 
 def error(s: str, /) -> None:

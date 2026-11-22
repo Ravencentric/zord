@@ -588,7 +588,7 @@ def test_invoked_task_keeps_live_and_captured_output_separate(
         f"$ {name} emit.py payload...",
         "warning",
         "",
-        f"$ {name} emit.py payload...  ✓ captured",
+        f"$ {name} emit.py payload...  ✓ (captured)",
     ]
 
 

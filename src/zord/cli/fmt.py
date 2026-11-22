@@ -101,7 +101,7 @@ def run(first: Task, /, *rest: Task) -> int:
         failure(f"{error.id} failed")
         if skipped := tasks[passed + 1 :]:
             names = ", ".join(task.id for task in skipped)
-            console.stderr(f"skipped: {names}")
+            console.stderr(f"[yellow]skipped:[/] {names}")
         if causes := causes_of(error):
             console.stderr(causes)
         return 1

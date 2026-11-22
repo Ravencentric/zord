@@ -670,7 +670,7 @@ def test_captured_failure_shows_cause_in_cli(
     assert main(("fail",)) == 1
     output = capsys.readouterr()
     assert output.out == ""
-    assert "  ✗ exit 7\n" in output.err
+    assert "  ✗ (exit 7)\n" in output.err
     assert "caused by:\n    0: CalledProcessError:" in output.err
     assert "captured stderr:" not in output.err
     assert "missing configuration" not in output.err
