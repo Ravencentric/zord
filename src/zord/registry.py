@@ -61,7 +61,7 @@ class TaskRegistry:
         if not file.is_file():
             raise TaskFileNotFoundError(file)
 
-        spec = importlib.util.spec_from_file_location("_zord_tasks", file)
+        spec = importlib.util.spec_from_file_location("__zord_tasks__", file)
         if spec is None or spec.loader is None:
             raise InvalidTaskFileError(file)
 
