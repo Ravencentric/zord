@@ -50,7 +50,11 @@ def test_task_file_failure(
 
         caused by:
             0: RuntimeError: broken import
-               in <module>() at tasks.py:1:1
+
+             --> tasks.py:1:1
+              |
+            1 | raise RuntimeError("broken import")
+              | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ in <module>()
         """
     )
 
@@ -73,7 +77,11 @@ def test_task_file_syntax_error(
 
         caused by:
             0: SyntaxError: invalid syntax
-               at tasks.py:1:12
+
+             --> tasks.py:1:12
+              |
+            1 | def broken(:
+              |            ^
         """
     )
 
@@ -386,7 +394,11 @@ def test_system_exit_while_loading_is_failure(
 
         caused by:
             0: SystemExit: 0
-               in <module>() at tasks.py:1:1
+
+             --> tasks.py:1:1
+              |
+            1 | raise SystemExit(0)
+              | ^^^^^^^^^^^^^^^^^^^ in <module>()
         """
     )
 
@@ -404,9 +416,18 @@ def test_system_exit_while_loading_is_failure(
 
             caused by:
                 0: RuntimeError: upload failed
-                   in deploy() at tasks.py:11:9
+
+                  --> tasks.py:11:9
+                   |
+                11 |         raise RuntimeError("upload failed")
+                   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ in deploy()
+
                 1: ConnectionError: connection refused
-                   in connect() at tasks.py:4:5
+
+                 --> tasks.py:4:5
+                  |
+                4 |     raise ConnectionError("connection refused")
+                  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ in connect()
             """,
         ),
         (
@@ -419,7 +440,11 @@ def test_system_exit_while_loading_is_failure(
 
             caused by:
                 0: RuntimeError: upload failed
-                   in deploy() at tasks.py:11:9
+
+                  --> tasks.py:11:9
+                   |
+                11 |         raise RuntimeError("upload failed") from None
+                   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ in deploy()
             """,
         ),
         (
@@ -432,7 +457,12 @@ def test_system_exit_while_loading_is_failure(
 
             caused by:
                 0: RuntimeError: upload failed
-                   in deploy() at tasks.py:11:9
+
+                  --> tasks.py:11:9
+                   |
+                11 |         raise RuntimeError("upload failed") from ValueError("explicit cause")
+                   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ in deploy()
+
                 1: ValueError: explicit cause
             """,
         ),
@@ -471,6 +501,122 @@ def test_task_failure(
     captured = capsys.readouterr()
     assert captured.out == ""
     assert captured.err == dedent(expected)
+
+
+@pytest.mark.parametrize(
+    "statement",
+    ['Cmd("")', 'Cmd(sys.executable).cwd("missing").run()', 'json.loads("invalid")'],
+    ids=["invalid-command", "subprocess-startup", "stdlib-call"],
+)
+def test_task_failure_points_to_helper_call(
+    statement: str,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    (tmp_path / "tasks.py").write_text(
+        dedent(
+            f"""\
+            import json
+            import sys
+            from zord import Cmd, task
+
+            def call() -> None:
+                {statement}
+
+            @task
+            def fail() -> None:
+                call()
+            """
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+
+    assert main(("fail",)) == 1
+    output = capsys.readouterr().err
+    assert "--> tasks.py:6:5\n" in output
+    assert " in call()\n" in output
+
+
+@pytest.mark.parametrize(
+    ("text", "column", "padding"),
+    [("x", 16, 23), ("界", 16, 24), ("e\u0301", 17, 23)],
+    ids=["ascii", "wide", "combining-mark"],
+)
+def test_task_failure_source_caret(
+    text: str,
+    column: int,
+    padding: int,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    source = f"('[red]{text}[/]', json.loads('invalid'))"
+    (tmp_path / "tasks.py").write_text(
+        dedent(
+            f"""\
+            import json
+            from zord import task
+            @task
+            def fail():
+            \t{source}
+            """
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+
+    assert main(("fail",)) == 1
+    assert capsys.readouterr().err == dedent(
+        f"""\
+        ── fail
+
+        ── zord
+        error: fail failed
+
+        caused by:
+            0: JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+
+             --> tasks.py:5:{column}
+              |
+            5 |         {source}
+              |{" " * padding}^^^^^^^^^^^^^^^^^^^^^ in fail()
+        """
+    )
+
+
+def test_task_failure_with_missing_source(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    (tmp_path / "tasks.py").write_text(
+        dedent(
+            """\
+            from zord import task
+
+            @task
+            def generated():
+                exec(compile("1 / 0", "generated.py", "exec"), {})
+            """
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+
+    assert main(("generated",)) == 1
+    assert capsys.readouterr().err == dedent(
+        """\
+        ── generated
+
+        ── zord
+        error: generated failed
+
+        caused by:
+            0: ZeroDivisionError: division by zero
+        """
+    )
 
 
 def test_keyboard_interrupt(

@@ -14,7 +14,7 @@ from ..errors import (
 )
 from ..model import TaskId
 from ..registry import TaskRegistry
-from .fmt import causes_of, diagnostic_for, invoke, run, show
+from .fmt import diagnostic_for, invoke, report, run, show
 from .parser import (
     TASKFILE,
     Command,
@@ -73,8 +73,7 @@ def cli(argv: Sequence[str] | None = None) -> int:
 
     except ZordError as error:
         console.error(error.msg)
-        if causes := causes_of(error):
-            console.stderr(causes)
+        report(error)
         return 1
 
     return execute(cmd, registry)
@@ -144,6 +143,5 @@ def execute(cmd: Command, registry: TaskRegistry, /) -> int:
 
     except ZordError as error:
         console.error(str(error))
-        if causes := causes_of(error):
-            console.stderr(causes)
+        report(error)
         return 1

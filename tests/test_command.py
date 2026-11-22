@@ -7,6 +7,7 @@ import sys
 from collections.abc import Callable, Iterable
 from pathlib import Path
 from string.templatelib import Template
+from textwrap import dedent
 
 import pytest
 
@@ -658,12 +659,16 @@ def test_captured_failure_shows_cause_in_cli(
         "import sys; print('missing ' + 'configuration', file=sys.stderr); sys.exit(7)"
     )
     (tmp_path / "tasks.py").write_text(
-        "import sys\n"
-        "from pathlib import Path\n"
-        "from zord import Cmd, task\n"
-        "@task\n"
-        "def fail():\n"
-        f"    Cmd(Path(sys.executable)).args(t'-c {{{script!r}}}').capture()\n",
+        dedent(
+            f"""\
+            import sys
+            from pathlib import Path
+            from zord import Cmd, task
+            @task
+            def fail():
+                Cmd(Path(sys.executable)).args(t'-c {{{script!r}}}').capture()
+            """
+        ),
         encoding="utf-8",
     )
     monkeypatch.chdir(tmp_path)
@@ -672,5 +677,7 @@ def test_captured_failure_shows_cause_in_cli(
     assert output.out == ""
     assert "  ✗ (exit 7)\n" in output.err
     assert "caused by:\n    0: CalledProcessError:" in output.err
+    assert "--> tasks.py:6:5\n" in output.err
+    assert " in fail()\n" in output.err
     assert "captured stderr:" not in output.err
     assert "missing configuration" not in output.err

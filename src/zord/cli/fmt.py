@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import linecache
 import os
 import sys
 import traceback
 from collections.abc import Sequence
+from dataclasses import dataclass
+from textwrap import indent
+from typing import Final
 
 from .. import annotation, console
 from ..errors import (
@@ -24,58 +28,187 @@ from ..errors import (
 )
 from ..model import Task
 
+STDLIB: Final = sys.stdlib_module_names | {"zord"}
+
 
 def relpath(filename: str, /) -> str:
     try:
-        return os.path.relpath(filename, start=os.getcwd())
+        return os.path.relpath(filename)
     except ValueError:
         # relpath cannot cross drive or UNC mount boundaries on Windows.
-        return os.path.abspath(filename)
+        return filename
 
 
-def location_of(exc: BaseException) -> str | None:
-    if isinstance(exc, SyntaxError) and exc.filename and exc.lineno:
-        filename = relpath(exc.filename)
-        col = f":{exc.offset}" if exc.offset is not None else ""
-        return f"at [cyan]{filename}:{exc.lineno}{col}[/]"
+def width(text: str, /) -> int:
+    """
+    len() returns unicode codepoints which doesn't work out for us.
 
-    if (tb := exc.__traceback__) is None:
-        return None
+    ```
+    len("🚀🚀🚀abcdef") -> 9
+    len("___abcdef") -> 9
+    ```
+    As you can see, len() returns 9 for both but the emojis take
+    twice as much "display" width compared to an ascii character.
+    """
+    text = text.expandtabs()
+    if text.isascii():
+        return len(text)
 
-    frame = next(
-        (
-            frame
-            for frame in reversed(traceback.extract_tb(tb))
-            # Skip frames like "<stdin>" or "<frozen importlib._bootstrap>"
-            if not frame.filename.startswith("<")
-        ),
-        None,
+    from unicodedata import category, east_asian_width
+
+    return sum(
+        2 if east_asian_width(char) in {"W", "F"} else 1
+        for char in text
+        if category(char) not in {"Mn", "Me", "Cf"}
     )
 
-    if frame is None:
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class SourceLocation:
+    filename: str
+    lineno: int
+    source: str
+    start: int | None
+    end: int | None
+    function: str | None = None
+
+    def render(self) -> str:
+        """
+        Render a rustc-like diagnostic.
+
+          --> tasks.py:79:9
+           |
+        79 |         raise RuntimeError("invalid deployment settings")
+           |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ in failure()
+
+        """
+
+        # Nothing to render if the line is empty (which is possible in
+        # some cases like exec(compile(...)))
+        line = self.source.partition("\n")[0].removesuffix("\r")
+        if not line.strip():
+            return ""
+
+        lineno = self.lineno
+        start = self.start
+        # Size the margin to the line number so the arrow lines up with it.
+        padding = " " * len(str(lineno))
+
+        # +1 because editors expect 1-based index when it comes to code location.
+        col = f":{start + 1}" if start is not None else ""
+        arrow = (
+            f"{padding}{console.render('[cyan]-->[/]')} "
+            f"{relpath(self.filename)}:{lineno}{col}"
+        )
+
+        # The "in func()" part, if any.
+        context = (
+            console.render(f" in [magenta]{self.function}()[/]")
+            if self.function
+            else ""
+        )
+
+        margin = console.render(f"{padding} [cyan]|[/]")
+        excerpt = f"{console.render(f'[cyan]{lineno} |[/]')} {line.expandtabs()}"
+
+        # Python may omit columns with PYTHONNODEBUGRANGES (Why is this a thing?)
+        # https://docs.python.org/3/using/cmdline.html#envvar-PYTHONNODEBUGRANGES
+        if start is None or not 0 <= start <= len(line):
+            return f"{arrow}{context}\n{margin}\n{excerpt}"
+
+        # len() is not enough when unicode gets involved, like emojis.
+        left = width(line[:start])
+        right = left if self.end is None else width(line[: self.end])
+        # A point location still needs one caret.
+        carets = "^" * max(1, right - left)
+        underline = (
+            f"{margin} {' ' * left}{console.render(f'[red]{carets}[/]')}{context}"
+        )
+        return f"{arrow}\n{margin}\n{excerpt}\n{underline}"
+
+
+def charindex(source: str, byte_offset: int | None, /) -> int | None:
+    """Convert a traceback's UTF-8 byte offset to an index for slicing the source."""
+    if source and byte_offset is not None:
+        return len(
+            source.encode("utf-8")[:byte_offset].decode("utf-8", errors="ignore")
+        )
+    return byte_offset
+
+
+def location_of(exc: BaseException) -> SourceLocation | None:
+    # Parsing can fail before Python executes the affected file. Use the parser's
+    # source and turn its one-based offsets into string indexes.
+    if isinstance(exc, SyntaxError) and exc.filename and exc.lineno:
+        start = exc.offset - 1 if exc.offset else None
+
+        # Check if the error spans a single line.
+        # We only bother underlining if it's a single line.
+        # if the error is multiline then we just mark the start.
+        end = (
+            exc.end_offset - 1
+            if exc.end_lineno == exc.lineno and exc.end_offset
+            else None
+        )
+        return SourceLocation(
+            filename=exc.filename,
+            lineno=exc.lineno,
+            source=exc.text or "",
+            start=start,
+            end=end,
+        )
+
+    # Walk from outermost call to innermost.
+    # Prefer the deepest frame outside stdlib or zord itself.
+    preferred = last = None
+    tb = exc.__traceback__
+    while tb is not None:
+        frame = tb.tb_frame
+        # Skip pseudo-filenames such as <string> so the location can point to a file.
+        if not frame.f_code.co_filename.startswith("<"):
+            last = tb
+            package = str(frame.f_globals.get("__name__", "")).partition(".")[0]
+            if package not in STDLIB:
+                preferred = tb
+        tb = tb.tb_next
+
+    # An exception attached as a cause may never have been raised and have no frames.
+    if (location := preferred or last) is None:
         return None
 
-    filename = relpath(frame.filename)
-    col = f":{frame.colno + 1}" if frame.colno is not None else ""
+    (summary,) = traceback.extract_tb(location, limit=1)
+    lineno = summary.lineno or location.tb_lineno
+    # Read the original indentation because the offsets include it.
+    source = linecache.getline(summary.filename, lineno, location.tb_frame.f_globals)
+    # Traceback offsets count UTF-8 bytes. Convert to string indexes, using the
+    # end offset only when it points into the line we show.
+    end = summary.end_colno if summary.end_lineno == lineno else None
+    return SourceLocation(
+        filename=summary.filename,
+        lineno=lineno,
+        source=source,
+        start=charindex(source, summary.colno),
+        end=charindex(source, end),
+        function=summary.name,
+    )
 
-    return f"in [magenta]{frame.name}()[/] at [cyan]{filename}:{frame.lineno}{col}[/]"
 
-
-def causes_of(error: ZordError) -> str:
+def report(error: ZordError) -> None:
+    """Print the exception chain to stderr."""
     if not (causes := error.causes()):
-        return ""
+        return
 
-    lines = ["", "[yellow]caused by:[/]"]
-
+    blocks = []
     for i, cause in enumerate(causes):
+        name = console.render(f"[magenta]{type(cause).__name__}[/]")
         text = cause.msg if isinstance(cause, SyntaxError) else str(cause)
-        message = f": {text}" if text else ""
-        lines.append(f"    {i}: [magenta]{type(cause).__name__}[/]{message}")
+        block = f"    {i}: {name}" + (f": {text}" if text else "")
+        if (location := location_of(cause)) and (excerpt := location.render()):
+            block += "\n\n" + indent(excerpt, "    ")
+        blocks.append(block)
 
-        if where := location_of(cause):
-            lines.append(f"       {where}")
-
-    return "\n".join(lines)
+    heading = console.render("[yellow]caused by:[/]")
+    print(f"\n{heading}\n" + "\n\n".join(blocks), file=sys.stderr, flush=True)
 
 
 def failure(message: str, /) -> None:
@@ -102,8 +235,7 @@ def run(first: Task, /, *rest: Task) -> int:
         if skipped := tasks[passed + 1 :]:
             names = ", ".join(task.id for task in skipped)
             console.stderr(f"[yellow]skipped:[/] {names}")
-        if causes := causes_of(error):
-            console.stderr(causes)
+        report(error)
         return 1
 
     except KeyboardInterrupt:
@@ -121,8 +253,7 @@ def invoke(task: Task, /, *args: object, **kwargs: object) -> int:
 
     except TaskError as error:
         failure(f"{error.id} failed")
-        if causes := causes_of(error):
-            console.stderr(causes)
+        report(error)
         return 1
 
     except KeyboardInterrupt:
