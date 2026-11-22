@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 import os
-import subprocess
 import sys
 import traceback
 from collections.abc import Sequence
 
-from .. import annotation
+from .. import annotation, console
 from ..errors import (
     BooleanOptionConflictError,
     DuplicateTaskIdError,
@@ -17,13 +16,13 @@ from ..errors import (
     ReservedOptionError,
     SignatureInspectionError,
     TaskDefinitionError,
+    TaskError,
     UnsupportedAnnotationError,
     UnsupportedTaskFunctionError,
     VarKeywordError,
     ZordError,
 )
 from ..model import Task
-from . import console
 
 
 def relpath(filename: str, /) -> str:
@@ -79,36 +78,74 @@ def causes_of(error: ZordError) -> str:
     return "\n".join(lines)
 
 
-def show_causes(error: ZordError) -> None:
-    if causes := causes_of(error):
-        console.stderr(causes)
-
-    for cause in error.causes():
-        if (
-            isinstance(cause, subprocess.CalledProcessError)
-            and isinstance(stderr := cause.stderr, str)
-            and stderr
-        ):
-            console.stderr("[yellow]captured stderr:[/]")
-            sys.stderr.write(stderr)
-            if not stderr.endswith("\n"):
-                sys.stderr.write("\n")
+def failure(message: str, /) -> None:
+    sys.stdout.flush()
+    console.stderr("")
+    console.heading("zord")
+    console.error(message)
 
 
-def run(tasks: Sequence[Task], /) -> None:
-    for i, task in enumerate(tasks):
-        if len(tasks) > 1:
-            console.stdout(f"[yellow]$[/] [cyan]{task.id}[/]")
-        task.call()
-        if len(tasks) > 1 and i < len(tasks) - 1:
-            console.stdout("")
+def run(first: Task, /, *rest: Task) -> int:
+    tasks = (first, *rest)
+    passed = 0
+    try:
+        for i, task in enumerate(tasks):
+            if i:
+                console.stderr("")
+            console.heading(task.id)
+            task.call()
+            sys.stdout.flush()
+            passed += 1
+
+    except TaskError as error:
+        failure(f"{error.id} failed")
+        if skipped := tasks[passed + 1 :]:
+            names = ", ".join(task.id for task in skipped)
+            console.stderr(f"[yellow]skipped:[/] {names}")
+        if causes := causes_of(error):
+            console.stderr(causes)
+        return 1
+
+    except KeyboardInterrupt:
+        failure("interrupted")
+        return 130
+
+    return 0
+
+
+def invoke(task: Task, /, *args: object, **kwargs: object) -> int:
+    try:
+        console.heading(task.id)
+        task.call(*args, **kwargs)
+        sys.stdout.flush()
+
+    except TaskError as error:
+        failure(f"{error.id} failed")
+        if causes := causes_of(error):
+            console.stderr(causes)
+        return 1
+
+    except KeyboardInterrupt:
+        failure("interrupted")
+        return 130
+
+    return 0
 
 
 def show(tasks: Sequence[Task], taskfile: str, /) -> None:
     total = len(tasks)
     label = "task" if total == 1 else "tasks"
     legend = " (* = default)" if tasks else ""
-    header = f"{taskfile}: [dim]{total} {label}{legend}[/]"
+    prefix = "──"
+
+    # Workaround for Windows where the above prefix
+    # results in a unicode error.
+    try:
+        prefix.encode(sys.stdout.encoding or "utf-8")
+    except UnicodeEncodeError:
+        prefix = "--"
+
+    header = f"[dim]{prefix}[/] {taskfile}: [dim]{total} {label}{legend}[/]"
     console.stdout(header)
 
     if not tasks:
