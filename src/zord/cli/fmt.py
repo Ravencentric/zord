@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import linecache
 import os
+import signal
+import subprocess
 import sys
 import traceback
 from collections.abc import Sequence
@@ -193,18 +195,76 @@ def location_of(exc: BaseException) -> SourceLocation | None:
     )
 
 
+def cmderr(error: subprocess.CalledProcessError) -> str:
+    """Describe a command that exited or was terminated by a signal."""
+    command: object = error.cmd
+
+    if isinstance(command, (str, bytes)):
+        # A command string may contain shell syntax instead of an executable path.
+        if len(command.split(maxsplit=1)) > 1:
+            command = None
+    elif isinstance(command, Sequence):
+        command = command[0] if command else None
+
+    name = "command"
+    if isinstance(command, (str, bytes, os.PathLike)):
+        try:
+            path = os.fsdecode(command)
+        except Exception:  # noqa: BLE001 - We don't want fail trying to show an error lol
+            path = ""
+
+        name = os.path.basename(path) or name
+
+    if error.returncode >= 0:
+        return f"{name} exited with code {error.returncode}"
+
+    # Subprocess uses negative return codes for signal termination.
+    number = -error.returncode
+    try:
+        reason = signal.Signals(number).name
+    except ValueError:
+        reason = f"signal {number}"
+
+    return f"{name} terminated by {reason}"
+
+
 def report(error: ZordError) -> None:
     """Print the exception chain to stderr."""
-    if not (causes := error.causes()):
+    causes = error.causes()
+    if not causes:
         return
 
     blocks = []
     for i, cause in enumerate(causes):
-        name = console.render(f"[magenta]{type(cause).__name__}[/]")
-        text = cause.msg if isinstance(cause, SyntaxError) else str(cause)
-        block = f"    {i}: {name}" + (f": {text}" if text else "")
-        if (location := location_of(cause)) and (excerpt := location.render()):
+        prefix = f"    {i}: "
+        stderr: str | bytes | None = None
+
+        if isinstance(cause, subprocess.CalledProcessError):
+            block = prefix + cmderr(cause)
+            stderr = cause.stderr
+        else:
+            name = console.render(f"[magenta]{type(cause).__name__}[/]")
+            text = cause.msg if isinstance(cause, SyntaxError) else str(cause)
+
+            block = prefix + name
+            if text:
+                block += f": {text}"
+
+        location = location_of(cause)
+        excerpt = location.render() if location else ""
+        if excerpt:
             block += "\n\n" + indent(excerpt, "    ")
+
+        # Python's subprocess API can capture stderr as either bytes or text.
+        if isinstance(stderr, bytes):
+            stderr = stderr.decode("utf-8", errors="replace")
+        stderr = "\n".join((stderr or "").splitlines()).rstrip("\n")
+
+        if stderr:
+            # Align the label with the cause text, even for multi-digit indices.
+            padding = " " * len(prefix)
+            block += f"\n\n{padding}stderr:\n" + indent(stderr, padding + "    ")
+
         blocks.append(block)
 
     heading = console.render("[yellow]caused by:[/]")
