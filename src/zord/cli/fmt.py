@@ -74,6 +74,10 @@ class SourceLocation:
     end: int | None
     function: str | None = None
 
+    @property
+    def padding(self) -> str:
+        return " " * len(str(self.lineno))
+
     def render(self) -> str:
         """
         Render a rustc-like diagnostic.
@@ -93,8 +97,7 @@ class SourceLocation:
 
         lineno = self.lineno
         start = self.start
-        # Size the margin to the line number so the arrow lines up with it.
-        padding = " " * len(str(lineno))
+        padding = self.padding
 
         # +1 because editors expect 1-based index when it comes to code location.
         col = f":{start + 1}" if start is not None else ""
@@ -261,9 +264,13 @@ def report(error: ZordError) -> None:
         stderr = "\n".join((stderr or "").splitlines()).rstrip("\n")
 
         if stderr:
-            # Align the label with the cause text, even for multi-digit indices.
-            padding = " " * len(prefix)
-            block += f"\n\n{padding}stderr:\n" + indent(stderr, padding + "    ")
+            padding = location.padding if location and excerpt else " "
+            arrow = console.render(f"{padding}[cyan]-->[/]")
+            margin = console.render(f"{padding} [cyan]|[/]")
+            lines = "\n".join(
+                f"{margin} {line}" if line else margin for line in stderr.split("\n")
+            )
+            block += "\n\n" + indent(f"{arrow} stderr\n{margin}\n{lines}", "    ")
 
         blocks.append(block)
 

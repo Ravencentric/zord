@@ -761,9 +761,41 @@ def test_captured_failure_shows_cause_in_cli(
     assert "--> tasks.py:7:5\n" in output.err
     assert " in fail()\n" in output.err
     assert output.err.endswith(
-        "\n       stderr:\n           missing configuration\n           check the settings\n"
+        "\n     --> stderr\n      |\n"
+        "      | missing configuration\n      | check the settings\n"
     )
     assert "partial stdout" not in output.err
+
+
+def test_subprocess_diagnostic_aligns_captured_bytes_with_the_source_excerpt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (tmp_path / "tasks.py").write_text(
+        dedent("""\
+            import subprocess
+            import sys
+            from zord import task
+
+            BYTE_FAILURE = (
+                "import sys; sys.stderr.buffer.write("
+                r"b'first line\\n\\ninvalid byte: \\xff\\n\\n'); sys.exit(8)"
+            )
+
+            @task
+            def raw_bytes():
+                subprocess.run([sys.executable, "-c", BYTE_FAILURE], capture_output=True, check=True)
+            """),
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+
+    assert main(("raw-bytes",)) == 1
+    output = capsys.readouterr().err
+    assert "      --> tasks.py:12:5\n" in output
+    assert output.endswith(
+        "\n      --> stderr\n       |\n"
+        "       | first line\n       |\n       | invalid byte: \ufffd\n"
+    )
 
 
 def test_subprocess_diagnostic_survives_path_conversion_failure(
@@ -782,5 +814,5 @@ def test_subprocess_diagnostic_survives_path_conversion_failure(
 
     assert capsys.readouterr().err == (
         "\ncaused by:\n    0: command exited with code 7\n\n"
-        "       stderr:\n           missing configuration\n"
+        "     --> stderr\n      |\n      | missing configuration\n"
     )
