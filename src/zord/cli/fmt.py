@@ -275,13 +275,13 @@ def report(error: ZordError) -> None:
         blocks.append(block)
 
     heading = console.render("[yellow]caused by:[/]")
-    print(f"\n{heading}\n" + "\n\n".join(blocks), file=sys.stderr, flush=True)
+    console.stderr(f"\n{heading}\n" + "\n\n".join(blocks), markup=False)
 
 
 def failure(message: str, /) -> None:
     sys.stdout.flush()
     console.stderr("")
-    console.heading("zord")
+    console.stderr(console.heading("zord"), markup=False)
     console.error(message)
 
 
@@ -292,7 +292,7 @@ def run(first: Task, /, *rest: Task) -> int:
         for i, task in enumerate(tasks):
             if i:
                 console.stderr("")
-            console.heading(task.id)
+            console.stderr(console.heading(task.id), markup=False)
             task.call()
             sys.stdout.flush()
             passed += 1
@@ -314,7 +314,7 @@ def run(first: Task, /, *rest: Task) -> int:
 
 def invoke(task: Task, /, *args: object, **kwargs: object) -> int:
     try:
-        console.heading(task.id)
+        console.stderr(console.heading(task.id), markup=False)
         task.call(*args, **kwargs)
         sys.stdout.flush()
 

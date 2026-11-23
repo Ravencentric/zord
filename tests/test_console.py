@@ -11,12 +11,15 @@ def test_style() -> None:
     assert console.Style.RESET.to_ansi() == "\033[0m"
 
 
-def test_stdout_stderr(capsys: CaptureFixture[str]) -> None:
+def test_stdout_stderr(monkeypatch: MonkeyPatch, capsys: CaptureFixture[str]) -> None:
+    monkeypatch.setattr(console, "can_colorize", lambda: False)
+
     console.stdout("Hello from stdout")
-    console.stderr("Hello from stderr")
+    console.stderr("[red]literal[/]", end="  ", markup=False)
+    console.stderr("[cyan]Hello from stderr[/]")
     out, err = capsys.readouterr()
     assert out == "Hello from stdout\n"
-    assert err == "Hello from stderr\n"
+    assert err == "[red]literal[/]  Hello from stderr\n"
 
 
 def test_render(monkeypatch: MonkeyPatch) -> None:
@@ -43,19 +46,20 @@ def test_heading_command_and_status_styles(
 ) -> None:
     monkeypatch.setattr(console, "can_colorize", lambda: True)
 
-    console.heading("check")
-    console.command("my tool", "[red]", end="  ")
-    console.status(0)
-    console.command("tool", end="  ")
-    console.status(7)
-
     executable = '"my tool"' if os.name == "nt" else "'my tool'"
     argument = "[red]" if os.name == "nt" else "'[red]'"
     prompt = f"{Style.YELLOW}${Style.RESET}"
-    assert capsys.readouterr().err == (
-        f"{Style.DIM}──{Style.RESET} {Style.CYAN}check{Style.RESET}\n"
-        f"\n{prompt} {Style.MAGENTA}{executable}{Style.RESET} {argument}"
-        f"  {Style.GREEN}✓{Style.RESET} {Style.DIM}(captured){Style.RESET}\n"
-        f"\n{prompt} {Style.MAGENTA}tool{Style.RESET}"
-        f"  {Style.RED}✗{Style.RESET} {Style.DIM}(exit 7){Style.RESET}\n"
+    assert console.heading("check") == (
+        f"{Style.DIM}──{Style.RESET} {Style.CYAN}check{Style.RESET}"
     )
+    assert console.command("my tool", "[red]") == (
+        f"{prompt} {Style.MAGENTA}{executable}{Style.RESET} {argument}"
+    )
+    assert console.command("tool") == f"{prompt} {Style.MAGENTA}tool{Style.RESET}"
+    assert console.status(0) == (
+        f"{Style.GREEN}✓{Style.RESET} {Style.DIM}(captured){Style.RESET}"
+    )
+    assert console.status(7) == (
+        f"{Style.RED}✗{Style.RESET} {Style.DIM}(exit 7){Style.RESET}"
+    )
+    assert capsys.readouterr() == ("", "")

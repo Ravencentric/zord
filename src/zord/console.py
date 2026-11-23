@@ -78,18 +78,17 @@ def stdout(s: str, /) -> None:
     print(s, file=sys.stdout, flush=True)
 
 
-def stderr(s: str, /) -> None:
-    if s:
+def stderr(s: str, /, *, end: str = "\n", markup: bool = True) -> None:
+    if s and markup:
         s = render(s)
-    print(s, file=sys.stderr, flush=True)
+    print(s, file=sys.stderr, end=end, flush=True)
 
 
-def heading(name: str, /) -> None:
-    stderr(f"[dim]──[/] [cyan]{name}[/]")
+def heading(name: str, /) -> str:
+    return render(f"[dim]──[/] [cyan]{name}[/]")
 
 
-def command(program: str, /, *args: str, end: str = "\n") -> None:
-    sys.stdout.flush()
+def command(program: str, /, *args: str) -> str:
     argv = []
     for arg in (program, *args):
         lines = arg.splitlines()
@@ -113,14 +112,13 @@ def command(program: str, /, *args: str, end: str = "\n") -> None:
         prompt = f"{Style.YELLOW}${Style.RESET}"
         executable = f"{Style.MAGENTA}{executable}{Style.RESET}"
 
-    print(f"\n{prompt} {executable}{arguments}", file=sys.stderr, end=end, flush=True)
+    return f"{prompt} {executable}{arguments}"
 
 
-def status(returncode: int, /) -> None:
+def status(returncode: int, /) -> str:
     if returncode == 0:
-        stderr("[green]✓[/] [dim](captured)[/]")
-    else:
-        stderr(f"[red]✗[/] [dim](exit {returncode})[/]")
+        return render("[green]✓[/] [dim](captured)[/]")
+    return render(f"[red]✗[/] [dim](exit {returncode})[/]")
 
 
 def error(s: str, /) -> None:

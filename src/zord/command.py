@@ -4,6 +4,7 @@ import os
 import shlex
 import shutil
 import subprocess
+import sys
 from collections.abc import Generator, Iterable, Mapping, Sequence
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass, replace
@@ -243,7 +244,9 @@ class Cmd:
 
     def run(self) -> Run:
         state = self.inner
-        console.command(state.executable.name, *state.args.inner)
+        sys.stdout.flush()
+        preview = console.command(state.executable.name, *state.args.inner)
+        console.stderr(f"\n{preview}", markup=False)
         completed = subprocess.run(
             (state.executable, *state.args.inner),
             cwd=state.cwd,
@@ -256,7 +259,9 @@ class Cmd:
 
     def capture(self) -> Capture:
         state = self.inner
-        console.command(state.executable.name, *state.args.inner, end="  ")
+        sys.stdout.flush()
+        preview = console.command(state.executable.name, *state.args.inner)
+        console.stderr(f"\n{preview}", end="  ", markup=False)
         try:
             completed = subprocess.run(
                 (state.executable, *state.args.inner),
@@ -271,7 +276,7 @@ class Cmd:
             console.stderr("")
             raise
 
-        console.status(completed.returncode)
+        console.stderr(console.status(completed.returncode), markup=False)
         if state.check:
             completed.check_returncode()
 
@@ -329,8 +334,10 @@ def parallel(*cmds: Cmd) -> tuple[Capture, ...]:
         for cmd, child in zip(cmds, children, strict=True):
             result = capture(cmd, child)
             results.append(result)
-            console.command(cmd.inner.executable.name, *result.args, end="  ")
-            console.status(result.returncode)
+            sys.stdout.flush()
+            preview = console.command(cmd.inner.executable.name, *result.args)
+            status = console.status(result.returncode)
+            console.stderr(f"\n{preview}  {status}", markup=False)
 
     for cmd, result in zip(cmds, results, strict=True):
         if cmd.inner.check and result.returncode:
