@@ -13,7 +13,9 @@ import pytest
 
 from zord import Capture, Cmd, Run
 from zord.cli import main
+from zord.cli.fmt import report
 from zord.command import Environment, Executable, StrOrPath
+from zord.errors import ZordError
 
 
 @pytest.mark.parametrize("constructor", [Cmd, Executable.parse])
@@ -650,23 +652,33 @@ def test_captured_failure_exposes_output() -> None:
     assert excinfo.value.stderr == "diagnostic\n"
 
 
+@pytest.mark.parametrize("use_cmd", [True, False], ids=["cmd", "subprocess"])
 def test_captured_failure_shows_cause_in_cli(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
+    use_cmd: bool,
 ) -> None:
     script = (
-        "import sys; print('missing ' + 'configuration', file=sys.stderr); sys.exit(7)"
+        "import sys; print('partial ' + 'stdout'); "
+        "print('missing ' + 'configuration\\ncheck the settings', file=sys.stderr); "
+        "sys.exit(7)"
+    )
+    call = (
+        f"Cmd(Path(sys.executable)).args(t'-c {{{script!r}}}').capture()"
+        if use_cmd
+        else f"subprocess.run([sys.executable, '-c', {script!r}], capture_output=True, check=True)"
     )
     (tmp_path / "tasks.py").write_text(
         dedent(
             f"""\
+            import subprocess
             import sys
             from pathlib import Path
             from zord import Cmd, task
             @task
             def fail():
-                Cmd(Path(sys.executable)).args(t'-c {{{script!r}}}').capture()
+                {call}
             """
         ),
         encoding="utf-8",
@@ -675,9 +687,33 @@ def test_captured_failure_shows_cause_in_cli(
     assert main(("fail",)) == 1
     output = capsys.readouterr()
     assert output.out == ""
-    assert "  ✗ (exit 7)\n" in output.err
-    assert "caused by:\n    0: CalledProcessError:" in output.err
-    assert "--> tasks.py:6:5\n" in output.err
+    if use_cmd:
+        assert "  ✗ (exit 7)\n" in output.err
+    executable = Path(sys.executable).name
+    assert f"caused by:\n    0: {executable} exited with code 7\n" in output.err
+    assert "--> tasks.py:7:5\n" in output.err
     assert " in fail()\n" in output.err
-    assert "captured stderr:" not in output.err
-    assert "missing configuration" not in output.err
+    assert output.err.endswith(
+        "\n       stderr:\n           missing configuration\n           check the settings\n"
+    )
+    assert "partial stdout" not in output.err
+
+
+def test_subprocess_diagnostic_survives_path_conversion_failure(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    class UnavailablePath:
+        def __fspath__(self) -> str:
+            raise FileNotFoundError("executable path is no longer available")
+
+    error = ZordError("task failed")
+    error.__cause__ = subprocess.CalledProcessError(
+        7, [UnavailablePath()], stderr="missing configuration\n"
+    )
+
+    report(error)
+
+    assert capsys.readouterr().err == (
+        "\ncaused by:\n    0: command exited with code 7\n\n"
+        "       stderr:\n           missing configuration\n"
+    )
