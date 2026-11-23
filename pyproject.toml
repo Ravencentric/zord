@@ -6,10 +6,8 @@ readme = "README.md"
 requires-python = ">=3.14"
 license = "MPL-2.0"
 license-files = ["LICENSE"]
-authors = [
-  { name = "Ravencentric", email = "me@ravencentri.cc" }
-]
-keywords = ["task-runner", "automation", "development"]
+authors = [{ name = "Ravencentric", email = "me@ravencentri.cc" }]
+keywords = ["automation", "development", "task-runner"]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Environment :: Console",
@@ -25,17 +23,17 @@ classifiers = [
 
 dependencies = []
 
+[project.urls]
+Documentation = "https://github.com/Ravencentric/zord#readme"
+Issues = "https://github.com/Ravencentric/zord/issues"
+Repository = "https://github.com/Ravencentric/zord"
+
 [project.scripts]
 zord = "zord.cli:main"
 
-[project.urls]
-Documentation = "https://github.com/Ravencentric/zord#readme"
-Repository = "https://github.com/Ravencentric/zord"
-Issues = "https://github.com/Ravencentric/zord/issues"
-
 [dependency-groups]
 dev = [
-  "pyrefly>=1.4",
+  "pyrefly>=1.5",
   "pytest>=9",
   "ruff>=0.17",
 ]
@@ -65,4 +63,4 @@ strict = true
 ignore = ["FURB189"]
 
 [tool.uv]
-exclude-newer = "1 week"
+exclude-newer = "3 days"
