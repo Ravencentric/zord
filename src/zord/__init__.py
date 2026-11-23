@@ -1,7 +1,7 @@
 from typing import Final
 
 from . import env
-from .command import Capture, Cmd, Run
+from .command import Capture, Cmd, Run, parallel
 from .registry import task
 
 __all__: Final = (
@@ -9,5 +9,6 @@ __all__: Final = (
     "Cmd",
     "Run",
     "env",
+    "parallel",
     "task",
 )

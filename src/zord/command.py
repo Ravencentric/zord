@@ -4,7 +4,8 @@ import os
 import shlex
 import shutil
 import subprocess
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Generator, Iterable, Mapping, Sequence
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass, replace
 from pathlib import Path
 from string.templatelib import Interpolation, Template, convert
@@ -290,3 +291,54 @@ def command(source: Cmd, /, **changes: Any) -> Cmd:
     result = object.__new__(Cmd)
     object.__setattr__(result, "inner", replace(source.inner, **changes))
     return result
+
+
+@contextmanager
+def popen(cmd: Cmd, /) -> Generator[subprocess.Popen[str]]:
+    state = cmd.inner
+    with subprocess.Popen(
+        (state.executable, *state.args.inner),
+        cwd=state.cwd,
+        env=state.env.inherit(),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        encoding="utf-8",
+        shell=False,
+    ) as child:
+        try:
+            yield child
+        finally:
+            if child.poll() is None:
+                child.kill()
+                child.wait()
+
+
+def capture(cmd: Cmd, child: subprocess.Popen[str], /) -> Capture:
+    stdout, stderr = child.communicate()
+    returncode = child.returncode
+    assert returncode is not None
+    state = cmd.inner
+    return Capture(state.executable.inner, state.args.inner, returncode, stdout, stderr)
+
+
+def parallel(*cmds: Cmd) -> tuple[Capture, ...]:
+    """Run independent commands and return their captured results in input order."""
+    results: list[Capture] = []
+    with ExitStack() as stack:
+        children = [stack.enter_context(popen(cmd)) for cmd in cmds]
+        for cmd, child in zip(cmds, children, strict=True):
+            result = capture(cmd, child)
+            results.append(result)
+            console.command(cmd.inner.executable.name, *result.args, end="  ")
+            console.status(result.returncode)
+
+    for cmd, result in zip(cmds, results, strict=True):
+        if cmd.inner.check and result.returncode:
+            raise subprocess.CalledProcessError(
+                result.returncode,
+                (cmd.inner.executable, *result.args),
+                output=result.stdout,
+                stderr=result.stderr,
+            )
+
+    return tuple(results)

@@ -11,7 +11,7 @@ from textwrap import dedent
 
 import pytest
 
-from zord import Capture, Cmd, Run
+from zord import Capture, Cmd, Run, parallel
 from zord.cli import main
 from zord.cli.fmt import report
 from zord.command import Environment, Executable, StrOrPath
@@ -650,6 +650,73 @@ def test_captured_failure_exposes_output() -> None:
     assert excinfo.value.returncode == 7
     assert excinfo.value.stdout == "partial\n"
     assert excinfo.value.stderr == "diagnostic\n"
+
+
+def test_parallel_starts_all_commands_before_collecting_output(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    command = Cmd(sys.executable).cwd(tmp_path).args("-c")
+    wait_for_second = dedent("""\
+        import time
+        from pathlib import Path
+
+        ready = Path("ready")
+        deadline = time.monotonic() + 10
+        while not ready.exists():
+            if time.monotonic() >= deadline:
+                raise SystemExit("second command did not start")
+            time.sleep(0.01)
+        print("first " + "result")
+        """)
+    write_output = dedent("""\
+        import sys
+        from pathlib import Path
+
+        Path("ready").touch()
+        sys.stdout.write("o" * 262144)
+        sys.stderr.write("e" * 262144)
+        sys.exit(7)
+        """)
+
+    first, second = parallel(
+        command.args(wait_for_second), command.args(write_output).check(False)
+    )
+
+    assert (first.returncode, first.stdout, first.stderr) == (0, "first result\n", "")
+    assert (second.returncode, second.stdout, second.stderr) == (
+        7,
+        "o" * 262144,
+        "e" * 262144,
+    )
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert "first result" not in output.err
+    assert "o" * 262144 not in output.err
+    assert "e" * 262144 not in output.err
+    assert "(captured)" in output.err
+    assert "(exit 7)" in output.err
+
+
+def test_parallel_reports_first_checked_failure_after_the_batch_finishes(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    command = Cmd(sys.executable).cwd(tmp_path).args("-c")
+    failure = command.args(
+        "import sys; print('diagnostic', file=sys.stderr); sys.exit(7)"
+    )
+    second_failure = command.args("raise SystemExit(8)")
+    later = command.args("from pathlib import Path; Path('finished').touch()")
+
+    with pytest.raises(subprocess.CalledProcessError) as excinfo:
+        parallel(failure, second_failure, later)
+
+    assert (tmp_path / "finished").is_file()
+    assert excinfo.value.returncode == 7
+    assert excinfo.value.stderr == "diagnostic\n"
+    output = capsys.readouterr().err
+    assert (
+        output.index("(exit 7)") < output.index("(exit 8)") < output.index("(captured)")
+    )
 
 
 @pytest.mark.parametrize("use_cmd", [True, False], ids=["cmd", "subprocess"])
